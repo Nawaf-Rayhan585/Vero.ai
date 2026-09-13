@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+*.pt
+
+# Node / frontend
+node_modules/
+dist/
+
+# Rust / Tauri
+target/
+desktop/src-tauri/gen/
+
+# Logs
+*.log

@@ -1,4 +1,4 @@
-# AI Vision
+# vero.io
 
 Desktop app for running YOLO-based object detection/segmentation/pose estimation on images and videos.
 

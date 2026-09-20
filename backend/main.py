@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import engine
 from app.detection_runner import reconcile_interrupted_jobs
-from app.routers import cameras, jobs, lines, tracking
+from app.routers import cameras, jobs, lines, tracking, zones
 from app.tracking import tracking_manager
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ app.include_router(jobs.router)
 app.include_router(cameras.router)
 app.include_router(tracking.router)
 app.include_router(lines.router)
+app.include_router(zones.router)
 
 
 @app.get("/health")

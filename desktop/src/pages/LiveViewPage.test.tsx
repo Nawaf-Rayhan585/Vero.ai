@@ -42,6 +42,7 @@ function makeTrackingStatus(overrides: Partial<TrackingStatus> = {}): TrackingSt
     last_frame_at: null,
     active_track_ids: [],
     line_counts: [],
+    zone_counts: [],
     ...overrides,
   };
 }
@@ -140,6 +141,43 @@ describe("LiveViewPage", () => {
     expect(fetch).not.toHaveBeenCalledWith(camerasApi.snapshotUrl("cam-1"));
     expect(img).toBeInTheDocument();
     expect(screen.getByText("running")).toBeInTheDocument();
+  });
+
+  it("offers a Show heatmap toggle only while tracking is active", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    vi.mocked(fetch).mockImplementation(async () => new Response(new Blob(["jpeg-bytes"]), { status: 200 }));
+
+    // Tracking stopped: raw snapshot, no toggle.
+    const stopped = renderWithProviders(<LiveViewPage />);
+    await screen.findByRole("img", { name: "Live snapshot from Front door" });
+    expect(screen.queryByLabelText(/Show heatmap/)).not.toBeInTheDocument();
+    stopped.unmount();
+
+    // Tracking running: toggle appears.
+    trackingStatusSpy.mockResolvedValue(makeTrackingStatus({ status: "running" }));
+    renderWithProviders(<LiveViewPage />);
+    expect(await screen.findByLabelText(/Show heatmap/)).not.toBeChecked();
+  });
+
+  it("ticking Show heatmap switches to the heat-overlay frame, and unticking switches back", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    trackingStatusSpy.mockResolvedValue(makeTrackingStatus({ status: "running", frame_count: 12 }));
+    vi.mocked(fetch).mockImplementation(async () => new Response(new Blob(["annotated-jpeg"]), { status: 200 }));
+    const user = userEvent.setup();
+    renderWithProviders(<LiveViewPage />);
+    await screen.findByRole("img", { name: "Live snapshot from Front door" });
+    expect(fetch).toHaveBeenCalledWith(trackingApi.latestFrameUrl("cam-1"));
+    expect(fetch).not.toHaveBeenCalledWith(trackingApi.latestFrameUrl("cam-1", { heatmap: true }));
+
+    await user.click(screen.getByLabelText(/Show heatmap/));
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(trackingApi.latestFrameUrl("cam-1", { heatmap: true })));
+    expect(trackingApi.latestFrameUrl("cam-1", { heatmap: true })).toMatch(/\/tracking\/latest-frame\?heatmap=true$/);
+
+    vi.mocked(fetch).mockClear();
+    await user.click(screen.getByLabelText(/Show heatmap/));
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(trackingApi.latestFrameUrl("cam-1")));
   });
 
   it("falls back to the raw snapshot once tracking stops", async () => {

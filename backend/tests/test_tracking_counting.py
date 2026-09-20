@@ -5,22 +5,16 @@ detection + ByteTrack tracking + crossing counting work together.
 
 For the end-to-end case, a video of a *static* repeated image (as used elsewhere for
 connection/detection tests) has no movement, so it can't exercise crossing detection.
-Instead this pans a cropped window across the real bus.jpg photo — every pixel stays
-genuinely real, only what's visible in-frame shifts — which was verified by hand (see
-docs/ROADMAP.md's Phase 6 notes) to produce stable track IDs whose position shifts
-monotonically across frames, a reliable and realistic "someone is walking" analogue.
+The shared `panning_video` fixture (tests/conftest.py) pans a cropped window across the
+real bus.jpg photo instead, which gives tracked people genuine, monotonic motion.
 """
 import time
 import uuid
 
-import cv2
 import pytest
-from ultralytics.utils import ASSETS
 
 from app.counting import LineConfig, Point
 from app.tracking import TrackingSession
-
-BUS_IMAGE = ASSETS / "bus.jpg"
 
 
 def _line_config(x1=0.5, y1=1.0, x2=0.5, y2=0.0, **overrides) -> LineConfig:
@@ -107,24 +101,6 @@ class TestUpdateCountsDirectly:
         counts = session.snapshot().line_counts[0]
         assert counts["in_count"] == 0
         assert counts["out_count"] == 0
-
-
-@pytest.fixture
-def panning_video(tmp_path):
-    image = cv2.imread(str(BUS_IMAGE))
-    height, width = image.shape[:2]
-    pad = 300
-    padded = cv2.copyMakeBorder(image, 0, 0, pad, pad, cv2.BORDER_REPLICATE)
-
-    n_frames = 30
-    video_path = tmp_path / "panning-feed.avi"
-    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 5.0, (width, height))
-    assert writer.isOpened()
-    for i in range(n_frames):
-        x_start = int(i * (2 * pad) / (n_frames - 1))
-        writer.write(padded[:, x_start : x_start + width])
-    writer.release()
-    return str(video_path), width, height
 
 
 def _create_camera(client, **overrides) -> dict:

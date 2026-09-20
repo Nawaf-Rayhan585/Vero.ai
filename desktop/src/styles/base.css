@@ -207,6 +207,25 @@ h3 {
   vector-effect: non-scaling-stroke;
 }
 
+.line-editor__existing-zone {
+  fill: rgba(255, 215, 0, 0.18);
+  stroke: #ffd700;
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-editor__draft-zone {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 0.6;
+  stroke-dasharray: 2 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-editor__draft-zone--closed {
+  fill: rgba(255, 255, 255, 0.15);
+}
+
 .line-editor__draft-point {
   fill: #ffffff;
   stroke: #000000;

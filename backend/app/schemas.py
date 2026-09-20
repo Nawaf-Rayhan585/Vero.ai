@@ -27,6 +27,12 @@ class LineCountRead(BaseModel):
     out_count: int
 
 
+class ZoneCountRead(BaseModel):
+    zone_id: str
+    name: str
+    count: int
+
+
 class TrackingStatusRead(BaseModel):
     status: TrackingStatusValue
     error: Optional[str] = None
@@ -35,6 +41,7 @@ class TrackingStatusRead(BaseModel):
     last_frame_at: Optional[datetime] = None
     active_track_ids: list[int] = Field(default_factory=list)
     line_counts: list[LineCountRead] = Field(default_factory=list)
+    zone_counts: list[ZoneCountRead] = Field(default_factory=list)
 
 
 class LineCreate(BaseModel):
@@ -55,6 +62,26 @@ class LineRead(BaseModel):
     y1: float
     x2: float
     y2: float
+    created_at: datetime
+
+
+class ZonePoint(BaseModel):
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+
+
+class ZoneCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    points: list[ZonePoint] = Field(min_length=3, max_length=100)
+
+
+class ZoneRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    name: str
+    points: list[ZonePoint]
     created_at: datetime
 
 

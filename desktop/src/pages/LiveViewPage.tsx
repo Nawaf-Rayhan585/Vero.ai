@@ -19,6 +19,7 @@ const STATUS_TONE: Record<TrackingStatusValue, "success" | "warning" | "danger" 
 export function LiveViewPage() {
   const { data: cameras, isLoading } = useCameras();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   useEffect(() => {
     if (!cameras || cameras.length === 0) return;
@@ -37,7 +38,7 @@ export function LiveViewPage() {
   // fetch would fire on every camera selection before the tracking-status check
   // resolves, even when tracking turns out to already be running.
   const snapshot = useCameraSnapshot(statusKnown && !isTrackingActive ? selectedId : null);
-  const trackingFrame = useTrackingFrame(statusKnown && isTrackingActive ? selectedId : null);
+  const trackingFrame = useTrackingFrame(statusKnown && isTrackingActive ? selectedId : null, showHeatmap);
   const activeFeed = isTrackingActive ? trackingFrame : snapshot;
 
   const selected = cameras?.find((c) => c.id === selectedId) ?? null;
@@ -77,6 +78,10 @@ export function LiveViewPage() {
         <div className="row">
           <span>AI tracking:</span>
           <StatusBadge label={trackingStatus.data.status} tone={STATUS_TONE[trackingStatus.data.status]} />
+          <label>
+            <input type="checkbox" checked={showHeatmap} onChange={(e) => setShowHeatmap(e.currentTarget.checked)} /> Show
+            heatmap
+          </label>
         </div>
       )}
 

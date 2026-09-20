@@ -63,7 +63,7 @@ def clean_tables(test_database):
     from app.database import engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines"))
+        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines, zones"))
 
 
 @pytest.fixture
@@ -81,3 +81,33 @@ def db_session():
 
     with SessionLocal() as session:
         yield session
+
+
+@pytest.fixture
+def panning_video(tmp_path):
+    """A short video that pans a cropped window across the real bus.jpg photo. Every pixel
+    stays genuinely real, only what's visible in-frame shifts, which was verified by hand
+    (see docs/ROADMAP.md's Phase 6 notes) to produce stable YOLO+ByteTrack track IDs whose
+    position shifts monotonically — a realistic "someone is walking" analogue. A video of
+    a static image can't exercise anything that depends on movement, and pasting a person
+    crop onto a plain background produces zero detections (confirmed empirically).
+
+    Returns (path, frame_width, frame_height).
+    """
+    import cv2
+    from ultralytics.utils import ASSETS
+
+    image = cv2.imread(str(ASSETS / "bus.jpg"))
+    height, width = image.shape[:2]
+    pad = 300
+    padded = cv2.copyMakeBorder(image, 0, 0, pad, pad, cv2.BORDER_REPLICATE)
+
+    n_frames = 30
+    video_path = tmp_path / "panning-feed.avi"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 5.0, (width, height))
+    assert writer.isOpened()
+    for i in range(n_frames):
+        x_start = int(i * (2 * pad) / (n_frames - 1))
+        writer.write(padded[:, x_start : x_start + width])
+    writer.release()
+    return str(video_path), width, height

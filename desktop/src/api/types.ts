@@ -71,6 +71,12 @@ export interface LineCount {
   out_count: number;
 }
 
+export interface ZoneCount {
+  zone_id: string;
+  name: string;
+  count: number;
+}
+
 export interface TrackingStatus {
   status: TrackingStatusValue;
   error: string | null;
@@ -79,6 +85,7 @@ export interface TrackingStatus {
   last_frame_at: string | null;
   active_track_ids: number[];
   line_counts: LineCount[];
+  zone_counts: ZoneCount[];
 }
 
 export interface Line {
@@ -98,4 +105,23 @@ export interface LineCreateRequest {
   y1: number;
   x2: number;
   y2: number;
+}
+
+/** Normalized 0-1 against the camera frame, like Line's coordinates. */
+export interface ZonePoint {
+  x: number;
+  y: number;
+}
+
+export interface Zone {
+  id: string;
+  camera_id: string;
+  name: string;
+  points: ZonePoint[];
+  created_at: string;
+}
+
+export interface ZoneCreateRequest {
+  name: string;
+  points: ZonePoint[];
 }

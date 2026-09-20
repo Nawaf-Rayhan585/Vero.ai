@@ -5,6 +5,7 @@ import { renderWithProviders } from "../test/renderWithProviders";
 import { camerasApi } from "../api/cameras";
 import { trackingApi } from "../api/tracking";
 import { linesApi } from "../api/lines";
+import { zonesApi } from "../api/zones";
 import { AIModulesPage } from "./AIModulesPage";
 import type { Camera, TrackingStatus } from "../api/types";
 
@@ -13,6 +14,7 @@ const statusSpy = vi.spyOn(trackingApi, "status");
 const startSpy = vi.spyOn(trackingApi, "start");
 const stopSpy = vi.spyOn(trackingApi, "stop");
 const linesListSpy = vi.spyOn(linesApi, "list");
+const zonesListSpy = vi.spyOn(zonesApi, "list");
 
 function makeCamera(overrides: Partial<Camera> = {}): Camera {
   return {
@@ -44,6 +46,7 @@ function makeStatus(overrides: Partial<TrackingStatus> = {}): TrackingStatus {
     last_frame_at: null,
     active_track_ids: [],
     line_counts: [],
+    zone_counts: [],
     ...overrides,
   };
 }
@@ -52,6 +55,7 @@ describe("AIModulesPage", () => {
   beforeEach(() => {
     statusSpy.mockResolvedValue(makeStatus());
     linesListSpy.mockResolvedValue([]);
+    zonesListSpy.mockResolvedValue([]);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["jpeg-bytes"]), { status: 200 })));
     URL.createObjectURL = vi.fn(() => "blob:mock-url");
     URL.revokeObjectURL = vi.fn();
@@ -141,6 +145,36 @@ describe("AIModulesPage", () => {
     renderWithProviders(<AIModulesPage />);
 
     expect(await screen.findByText("Entrance: 3 in / 1 out")).toBeInTheDocument();
+  });
+
+  it("shows the live count of people inside each configured zone", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    statusSpy.mockResolvedValue(
+      makeStatus({
+        status: "running",
+        zone_counts: [
+          { zone_id: "zone-1", name: "Checkout", count: 2 },
+          { zone_id: "zone-2", name: "Entrance mat", count: 0 },
+        ],
+      }),
+    );
+    renderWithProviders(<AIModulesPage />);
+
+    expect(await screen.findByText("Checkout: 2 inside")).toBeInTheDocument();
+    expect(screen.getByText("Entrance mat: 0 inside")).toBeInTheDocument();
+  });
+
+  it("clicking Zones opens the zone editor for that camera, and again closes it", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    const user = userEvent.setup();
+    renderWithProviders(<AIModulesPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Zones" }));
+    expect(await screen.findByAltText("Camera frame for zone placement")).toBeInTheDocument();
+    expect(screen.queryByAltText("Camera frame for line placement")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide zones" }));
+    expect(screen.queryByAltText("Camera frame for zone placement")).not.toBeInTheDocument();
   });
 
   it("clicking Lines opens the line editor for that camera, and again closes it", async () => {

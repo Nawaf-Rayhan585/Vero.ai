@@ -58,6 +58,22 @@ class Line(Base):
     )
 
 
+class Zone(Base):
+    __tablename__ = "zones"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    camera_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cameras.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    # A polygon has a variable number of vertices, so a JSONB list of {"x", "y"} rather
+    # than a child table. Normalized 0.0-1.0 like Line's coordinates, for the same reason.
+    points: Mapped[list] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
 class Job(Base):
     __tablename__ = "jobs"
 

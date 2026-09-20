@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.counting import LineConfig
+from app.counting import LineConfig, Point
 from app.database import get_db
-from app.models import Line
+from app.models import Line, Zone
 from app.routers.cameras import _decrypted_credentials, _get_camera_or_404
 from app.schemas import TrackingStatusRead
 from app.tracking import TrackingStatusSnapshot, tracking_manager
+from app.zones import ZoneConfig
 
 router = APIRouter(prefix="/cameras", tags=["tracking"])
 
@@ -26,7 +27,12 @@ def start_tracking(camera_id: str, db: Session = Depends(get_db)):
     username, password = _decrypted_credentials(camera)
     rows = db.scalars(select(Line).where(Line.camera_id == camera.id)).all()
     lines = [LineConfig(id=row.id, name=row.name, x1=row.x1, y1=row.y1, x2=row.x2, y2=row.y2) for row in rows]
-    session = tracking_manager.start(camera.id, camera.rtsp_url, username, password, lines)
+    zone_rows = db.scalars(select(Zone).where(Zone.camera_id == camera.id)).all()
+    zones = [
+        ZoneConfig(id=row.id, name=row.name, points=tuple(Point(p["x"], p["y"]) for p in row.points))
+        for row in zone_rows
+    ]
+    session = tracking_manager.start(camera.id, camera.rtsp_url, username, password, lines, zones)
     return _to_status_read(session.snapshot())
 
 
@@ -47,12 +53,12 @@ def get_tracking_status(camera_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{camera_id}/tracking/latest-frame")
-def get_latest_tracking_frame(camera_id: str, db: Session = Depends(get_db)):
+def get_latest_tracking_frame(camera_id: str, heatmap: bool = False, db: Session = Depends(get_db)):
     camera = _get_camera_or_404(db, camera_id)
     session = tracking_manager.get(camera.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Tracking has not been started for this camera")
-    frame = session.latest_frame()
+    frame = session.latest_frame(heatmap=heatmap)
     if frame is None:
         raise HTTPException(status_code=503, detail="No frame available yet")
     return Response(content=frame, media_type="image/jpeg")

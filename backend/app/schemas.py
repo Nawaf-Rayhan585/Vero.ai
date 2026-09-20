@@ -20,6 +20,13 @@ class TrackingStatusValue(str, Enum):
     stopped = "stopped"
 
 
+class LineCountRead(BaseModel):
+    line_id: str
+    name: str
+    in_count: int
+    out_count: int
+
+
 class TrackingStatusRead(BaseModel):
     status: TrackingStatusValue
     error: Optional[str] = None
@@ -27,6 +34,28 @@ class TrackingStatusRead(BaseModel):
     started_at: Optional[datetime] = None
     last_frame_at: Optional[datetime] = None
     active_track_ids: list[int] = Field(default_factory=list)
+    line_counts: list[LineCountRead] = Field(default_factory=list)
+
+
+class LineCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    x1: float = Field(ge=0.0, le=1.0)
+    y1: float = Field(ge=0.0, le=1.0)
+    x2: float = Field(ge=0.0, le=1.0)
+    y2: float = Field(ge=0.0, le=1.0)
+
+
+class LineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    name: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    created_at: datetime
 
 
 class CameraCreate(BaseModel):

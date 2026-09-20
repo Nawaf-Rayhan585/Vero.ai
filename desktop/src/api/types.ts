@@ -64,6 +64,13 @@ export type CameraUpdateRequest = Partial<CameraCreateRequest>;
 
 export type TrackingStatusValue = "starting" | "running" | "reconnecting" | "error" | "stopped";
 
+export interface LineCount {
+  line_id: string;
+  name: string;
+  in_count: number;
+  out_count: number;
+}
+
 export interface TrackingStatus {
   status: TrackingStatusValue;
   error: string | null;
@@ -71,4 +78,24 @@ export interface TrackingStatus {
   started_at: string | null;
   last_frame_at: string | null;
   active_track_ids: number[];
+  line_counts: LineCount[];
+}
+
+export interface Line {
+  id: string;
+  camera_id: string;
+  name: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  created_at: string;
+}
+
+export interface LineCreateRequest {
+  name: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }

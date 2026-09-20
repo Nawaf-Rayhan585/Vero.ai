@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,6 +37,25 @@ class Camera(Base):
     last_fps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class Line(Base):
+    __tablename__ = "lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    camera_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cameras.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    # Normalized 0.0-1.0, not pixels: resolution-independent, since the annotated
+    # frame's actual size isn't known until a camera is actually opened.
+    x1: Mapped[float] = mapped_column(Float)
+    y1: Mapped[float] = mapped_column(Float)
+    x2: Mapped[float] = mapped_column(Float)
+    y2: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
 
 
 class Job(Base):

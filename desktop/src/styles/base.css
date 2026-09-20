@@ -156,3 +156,76 @@ h3 {
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
 }
+
+.camera-row__line-counts {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.line-editor {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.line-editor__canvas-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.line-editor__image {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  cursor: crosshair;
+}
+
+.line-editor__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.line-editor__existing-line {
+  stroke: #ffa500;
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-editor__draft-line {
+  stroke: #ffffff;
+  stroke-width: 0.6;
+  stroke-dasharray: 2 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-editor__draft-point {
+  fill: #ffffff;
+  stroke: #000000;
+  stroke-width: 0.3;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-editor__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.line-editor__list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}

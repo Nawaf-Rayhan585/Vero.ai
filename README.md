@@ -6,7 +6,7 @@ This is a working prototype, not the V1 product. See [docs/PROJECT.md](docs/PROJ
 
 ## Architecture
 
-- **backend/** — FastAPI server. Jobs and cameras are stored in PostgreSQL (SQLAlchemy + Alembic migrations); exposes `/jobs` and `/cameras` endpoints. Camera passwords are encrypted at rest (`app/crypto.py`, Fernet); RTSP connectivity testing and snapshot grabbing (`app/camera_testing.py`) use OpenCV with a bounded timeout. Continuous person detection + tracking (`app/tracking.py`, Ultralytics YOLO + ByteTrack) runs one background thread per actively-tracked camera, fully in-memory — nothing about a tracking session is persisted or auto-resumed after a restart.
+- **backend/** — FastAPI server. Jobs, cameras, and entry/exit lines are stored in PostgreSQL (SQLAlchemy + Alembic migrations); exposes `/jobs`, `/cameras`, and `/cameras/{id}/lines` endpoints. Camera passwords are encrypted at rest (`app/crypto.py`, Fernet); RTSP connectivity testing and snapshot grabbing (`app/camera_testing.py`) use OpenCV with a bounded timeout. Continuous person detection + tracking (`app/tracking.py`, Ultralytics YOLO + ByteTrack) runs one background thread per actively-tracked camera; entry/exit line-crossing counting (`app/counting.py`, pure geometry) runs inside that same loop. Session state — frame count, active tracks, in/out counts — is fully in-memory, reset every time tracking starts; only the line *definitions* are persisted.
 - **ai-engine/** — YOLO detection pipeline (`Detector` class). Imported directly by `backend/` (not a separate service).
 - **desktop/** — Tauri + React UI, structured for the full app: `src/app/routes.tsx` is the single source of truth for the sidebar and router, `src/api/` is the typed backend client, `src/pages/` holds one component per section (Dashboard, Detect, Settings; the rest are honest placeholders naming the phase that builds them), `src/hooks/` wraps the API in React Query, `src/settings/` persists user preferences (including the backend URL) to `localStorage`. Talks to the backend over HTTP at `http://127.0.0.1:8000` by default — overridable per-machine from the in-app Settings page (Backend connection).
 
@@ -70,7 +70,7 @@ cd "F:\AI Dev\Vero.ai SaaS Platform\vero.ai"
 .\start-dev.ps1
 ```
 
-Once both are running: click **Select Video/Image** in the app, choose a model and confidence threshold under **Settings**, then click **Run Detection**. Add a camera under **Cameras** (an RTSP URL, or a local video file path for testing without real camera hardware) and use **Test connection**; **Live View** shows a refreshing snapshot from the selected camera. Under **AI Modules**, click **Start tracking** on a camera to run continuous person detection + tracking (person boxes + track IDs) — while it's running, Live View for that camera automatically switches to the AI-annotated feed.
+Once both are running: click **Select Video/Image** in the app, choose a model and confidence threshold under **Settings**, then click **Run Detection**. Add a camera under **Cameras** (an RTSP URL, or a local video file path for testing without real camera hardware) and use **Test connection**; **Live View** shows a refreshing snapshot from the selected camera. Under **AI Modules**, click **Lines** to draw an entry/exit line (click two points directly on the camera image, name it, save), then click **Start tracking** to run continuous person detection + tracking + line counting — while it's running, Live View for that camera automatically switches to the AI-annotated feed, with lines and live in/out counts burned into the video itself.
 
 The first detection run for a given model downloads its YOLO weights (e.g. `yolov8n.pt`) into `backend/` and caches them there for subsequent runs.
 
@@ -120,3 +120,6 @@ This produces an MSI and an NSIS installer under `desktop/src-tauri/target/relea
 - A tracking session's `YOLO` model is loaded fresh on every Start (a one-off ~6-7s warm-up); starting/stopping the same camera repeatedly re-pays that cost each time.
 - Restarting the backend silently stops all active tracking sessions (no persistence, no auto-resume) — the same on-demand-only philosophy as camera connection status.
 - A dropped stream retries for about a minute (backoff, bounded attempts) before giving up and marking the session `error`; it does not retry forever, and it does not auto-restart on its own afterward.
+- Entry/exit line counts are ephemeral, per tracking session — they reset to zero every time tracking starts. Historical/persistent analytics (today's total, trends over time) is Phase 9's job.
+- Lines cannot be edited after creation (no drag-to-adjust, no reposition) — delete and redraw instead. Straight lines only, no zones/polygons.
+- A camera's lines are deleted automatically if the camera itself is deleted (database cascade).

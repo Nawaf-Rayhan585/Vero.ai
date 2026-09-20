@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useCameras } from "../hooks/useCameras";
 import { useStartTracking, useStopTracking, useTrackingStatus } from "../hooks/useTracking";
+import { LineEditor } from "../components/LineEditor";
 import { Button, Card, EmptyState, ErrorNotice, StatusBadge } from "../components/ui";
 import type { Camera, TrackingStatusValue } from "../api/types";
 
@@ -17,6 +19,7 @@ function AIModuleRow({ camera }: { camera: Camera }) {
   const { data: status } = useTrackingStatus(camera.id);
   const startTracking = useStartTracking();
   const stopTracking = useStopTracking();
+  const [showLines, setShowLines] = useState(false);
 
   const isRunning = status ? RUNNING_STATUSES.includes(status.status) : false;
   const busy = startTracking.isPending || stopTracking.isPending;
@@ -32,6 +35,7 @@ function AIModuleRow({ camera }: { camera: Camera }) {
           )}
         </div>
         <div className="row">
+          <Button onClick={() => setShowLines((v) => !v)}>{showLines ? "Hide lines" : "Lines"}</Button>
           {isRunning ? (
             <Button onClick={() => stopTracking.mutate(camera.id)} disabled={busy}>
               {stopTracking.isPending ? "Stopping..." : "Stop tracking"}
@@ -44,9 +48,21 @@ function AIModuleRow({ camera }: { camera: Camera }) {
         </div>
       </div>
 
+      {status && status.line_counts.length > 0 && (
+        <ul className="camera-row__line-counts">
+          {status.line_counts.map((lc) => (
+            <li key={lc.line_id}>
+              {lc.name}: {lc.in_count} in / {lc.out_count} out
+            </li>
+          ))}
+        </ul>
+      )}
+
       {status?.status === "error" && status.error && <ErrorNotice message={status.error} />}
       {startTracking.isError && <ErrorNotice message={startTracking.error.message} />}
       {stopTracking.isError && <ErrorNotice message={stopTracking.error.message} />}
+
+      {showLines && <LineEditor cameraId={camera.id} />}
     </li>
   );
 }
@@ -57,8 +73,8 @@ export function AIModulesPage() {
   return (
     <Card title="AI Modules">
       <p style={{ color: "var(--color-text-muted)" }}>
-        Person detection + tracking. Other modules (counting, zones, heatmaps, vehicles, OCR, QR, barcode) arrive in
-        later phases.
+        Person detection + tracking, with entry/exit line counting. Other modules (zones, heatmaps, vehicles, OCR,
+        QR, barcode) arrive in later phases.
       </p>
 
       {isLoading && null}

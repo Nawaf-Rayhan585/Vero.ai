@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { camerasApi } from "../api/cameras";
 import { trackingApi } from "../api/tracking";
+import { linesApi } from "../api/lines";
 import { AIModulesPage } from "./AIModulesPage";
 import type { Camera, TrackingStatus } from "../api/types";
 
@@ -11,6 +12,7 @@ const listSpy = vi.spyOn(camerasApi, "list");
 const statusSpy = vi.spyOn(trackingApi, "status");
 const startSpy = vi.spyOn(trackingApi, "start");
 const stopSpy = vi.spyOn(trackingApi, "stop");
+const linesListSpy = vi.spyOn(linesApi, "list");
 
 function makeCamera(overrides: Partial<Camera> = {}): Camera {
   return {
@@ -41,6 +43,7 @@ function makeStatus(overrides: Partial<TrackingStatus> = {}): TrackingStatus {
     started_at: null,
     last_frame_at: null,
     active_track_ids: [],
+    line_counts: [],
     ...overrides,
   };
 }
@@ -48,9 +51,14 @@ function makeStatus(overrides: Partial<TrackingStatus> = {}): TrackingStatus {
 describe("AIModulesPage", () => {
   beforeEach(() => {
     statusSpy.mockResolvedValue(makeStatus());
+    linesListSpy.mockResolvedValue([]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["jpeg-bytes"]), { status: 200 })));
+    URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    URL.revokeObjectURL = vi.fn();
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.resetAllMocks();
   });
 
@@ -120,5 +128,30 @@ describe("AIModulesPage", () => {
     await user.click(await screen.findByRole("button", { name: "Start tracking" }));
 
     expect(await screen.findByText("Server returned 500")).toBeInTheDocument();
+  });
+
+  it("shows live in/out counts for each configured line", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    statusSpy.mockResolvedValue(
+      makeStatus({
+        status: "running",
+        line_counts: [{ line_id: "line-1", name: "Entrance", in_count: 3, out_count: 1 }],
+      }),
+    );
+    renderWithProviders(<AIModulesPage />);
+
+    expect(await screen.findByText("Entrance: 3 in / 1 out")).toBeInTheDocument();
+  });
+
+  it("clicking Lines opens the line editor for that camera, and again closes it", async () => {
+    listSpy.mockResolvedValue([makeCamera()]);
+    const user = userEvent.setup();
+    renderWithProviders(<AIModulesPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Lines" }));
+    expect(await screen.findByAltText("Camera frame for line placement")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide lines" }));
+    expect(screen.queryByAltText("Camera frame for line placement")).not.toBeInTheDocument();
   });
 });

@@ -41,6 +41,7 @@ function makeTrackingStatus(overrides: Partial<TrackingStatus> = {}): TrackingSt
     started_at: null,
     last_frame_at: null,
     active_track_ids: [],
+    line_counts: [],
     ...overrides,
   };
 }

@@ -63,7 +63,7 @@ def clean_tables(test_database):
     from app.database import engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE jobs, cameras"))
+        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines"))
 
 
 @pytest.fixture

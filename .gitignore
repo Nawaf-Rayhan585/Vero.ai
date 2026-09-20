@@ -14,3 +14,10 @@ desktop/src-tauri/gen/
 
 # Logs
 *.log
+
+# Secrets / local environment
+.env
+!.env.example
+
+# Tests
+.pytest_cache/

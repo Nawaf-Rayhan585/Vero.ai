@@ -1,0 +1,15 @@
+.vero-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid var(--color-accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: vero-spin 0.8s linear infinite;
+}
+
+@keyframes vero-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AI Vision",
+  "productName": "Vero.ai",
   "version": "0.1.0",
-  "identifier": "com.fc.desktop",
+  "identifier": "ai.vero.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "AI Vision",
-        "width": 900,
-        "height": 700
+        "title": "Vero.ai",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
       }
     ],
     "security": {

@@ -1,0 +1,7 @@
+.vero-error-notice {
+  color: var(--color-danger);
+  background-color: var(--color-danger-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  font-weight: 500;
+}

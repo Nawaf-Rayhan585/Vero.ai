@@ -1,0 +1,10 @@
+.vero-empty-state {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-6) var(--space-4);
+}
+
+.vero-empty-state__title {
+  font-weight: 500;
+  margin: 0 0 var(--space-2);
+}

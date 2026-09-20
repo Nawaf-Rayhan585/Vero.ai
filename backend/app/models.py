@@ -1,0 +1,56 @@
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base
+
+
+class Camera(Base):
+    __tablename__ = "cameras"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    rtsp_url: Mapped[str] = mapped_column(Text)
+    username: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    encrypted_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Free text, not a foreign key: real Location rows don't exist until Phase 10.
+    location_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    connection_status: Mapped[str] = mapped_column(String(16), default="unknown", server_default="unknown")
+    last_tested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_fps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    video_source: Mapped[str] = mapped_column(Text)
+    model_type: Mapped[str] = mapped_column(String(32))
+    confidence_threshold: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -21,6 +21,7 @@ CAMERA_KEYS = {
     "last_fps",
     "last_width",
     "last_height",
+    "enabled_modules",
 }
 
 

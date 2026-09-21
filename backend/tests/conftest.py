@@ -111,3 +111,56 @@ def panning_video(tmp_path):
         writer.write(padded[:, x_start : x_start + width])
     writer.release()
     return str(video_path), width, height
+
+
+@pytest.fixture
+def scan_scene():
+    """Factory for a synthetic 720p frame containing real, decodable QR codes / barcodes
+    (generated with zxing-cpp's own writer) and real rendered text for OCR, any subset of
+    them. Sized so each code is comfortably readable: a CCTV frame only decodes codes that
+    span enough pixels (~200 px wide worked when measured; 120 px did not).
+    """
+    import cv2
+    import numpy as np
+    import zxingcpp
+
+    formats = zxingcpp.BarcodeFormat
+
+    def code_image(fmt, value, scale):
+        image = np.array(zxingcpp.write_barcode_to_image(zxingcpp.create_barcode(value, fmt), scale=scale))
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image
+
+    def build(qr=None, barcode=None, barcode_format=None, text=None, width=1280, height=720):
+        frame = np.full((height, width, 3), 90, np.uint8)
+        if qr is not None:
+            image = code_image(formats.QRCode, qr, 8)
+            frame[80 : 80 + image.shape[0], 100 : 100 + image.shape[1]] = image
+        if barcode is not None:
+            image = code_image(barcode_format or formats.Code128, barcode, 4)
+            frame[120 : 120 + image.shape[0], 600 : 600 + image.shape[1]] = image
+        if text is not None:
+            cv2.putText(frame, text, (100, 620), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (255, 255, 255), 4)
+        return frame
+
+    return build
+
+
+@pytest.fixture
+def scan_video(tmp_path, scan_scene):
+    """A short video of a scene holding a QR code, a Code 128 barcode and a line of text.
+    Nothing in it moves, and nothing in it needs a detector. Returns the video's path
+    together with the values it contains."""
+    from types import SimpleNamespace
+
+    import cv2
+
+    contents = SimpleNamespace(qr="https://vero.ai/t/42", barcode="PKG-99812", text="PALLET 4471-B")
+    frame = scan_scene(qr=contents.qr, barcode=contents.barcode, text=contents.text)
+    video_path = tmp_path / "scan-feed.avi"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 5.0, (frame.shape[1], frame.shape[0]))
+    assert writer.isOpened()
+    for _ in range(15):
+        writer.write(frame)
+    writer.release()
+    contents.path = str(video_path)
+    return contents

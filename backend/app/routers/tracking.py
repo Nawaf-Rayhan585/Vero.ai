@@ -32,7 +32,14 @@ def start_tracking(camera_id: str, db: Session = Depends(get_db)):
         ZoneConfig(id=row.id, name=row.name, points=tuple(Point(p["x"], p["y"]) for p in row.points))
         for row in zone_rows
     ]
-    session = tracking_manager.start(camera.id, camera.rtsp_url, username, password, lines, zones)
+    if not camera.enabled_modules:
+        raise HTTPException(
+            status_code=422,
+            detail="Enable at least one AI module for this camera before starting tracking",
+        )
+    session = tracking_manager.start(
+        camera.id, camera.rtsp_url, username, password, lines, zones, camera.enabled_modules
+    )
     return _to_status_read(session.snapshot())
 
 

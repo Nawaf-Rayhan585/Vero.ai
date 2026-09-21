@@ -26,6 +26,7 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     last_fps: null,
     last_width: null,
     last_height: null,
+    enabled_modules: ["people"],
     ...overrides,
   };
 }

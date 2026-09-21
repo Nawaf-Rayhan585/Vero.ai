@@ -1,18 +1,20 @@
 """In-memory, ephemeral continuous detection+tracking sessions, one per camera.
 
 Session state (frame count, active tracks, line-crossing counts, zone occupancy, the
-heatmap) is deliberately not persisted: no "enabled" flag, no auto-resume after a backend
-restart, everything resets every time tracking starts. Line and zone *definitions*
-(app.models.Line / Zone) are real, persisted configuration, loaded once when a session
-starts. Historical/aggregated analytics is Phase 9's job — this module only proves
-detection+tracking+counting works and is watchable while a session runs.
+heatmap, what the reading modules have seen) is deliberately not persisted: no "enabled"
+flag, no auto-resume after a backend restart, everything resets every time tracking
+starts. Line and zone *definitions* (app.models.Line / Zone) and which AI modules a
+camera runs (Camera.enabled_modules) are real, persisted configuration, loaded once when
+a session starts. Historical/aggregated analytics is Phase 9's job — this module only
+proves detection+tracking+counting+reading works and is watchable while a session runs.
 """
+import logging
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 import cv2
 import numpy as np
@@ -21,10 +23,21 @@ from ultralytics import YOLO
 from app.camera_testing import build_stream_url
 from app.counting import LineConfig, Point, ResolvedLine, classify_crossing
 from app.heatmap import HeatmapAccumulator
+from app.modules import (
+    DEFAULT_MODULES,
+    OCR,
+    PEOPLE,
+    PERSON_CLASS_ID,
+    VEHICLE_CLASS_IDS,
+    VEHICLES,
+    detector_class_ids,
+)
+from app.scanning import CodeScanner, OcrWorker, ReadEntry, ReadRegistry, TextReader, ascii_label
 from app.zones import ResolvedZone, ZoneConfig, point_in_polygon
 
+logger = logging.getLogger(__name__)
+
 MODEL_WEIGHTS = "yolov8n.pt"
-PERSON_CLASS_ID = 0
 
 # Measured on this project's dev machine (CPU-only, 4-core i3): steady-state inference
 # is ~0.09s/frame, so 5fps leaves headroom for the backend to keep serving other
@@ -41,6 +54,10 @@ BOX_COLOR = (0, 200, 0)
 LINE_COLOR = (255, 165, 0)
 ZONE_COLOR = (0, 215, 255)
 ZONE_FILL_ALPHA = 0.2
+VEHICLE_COLOR = (0, 140, 255)
+READ_COLOR = (255, 0, 255)
+READ_LABELS = {"qr": "QR", "barcode": "BARCODE", "ocr": "TEXT"}
+MAX_OVERLAY_TEXT_CHARS = 40
 
 
 def should_give_up(attempt: int) -> bool:
@@ -56,8 +73,10 @@ class TrackingStatusSnapshot:
     started_at: Optional[datetime]
     last_frame_at: Optional[datetime]
     active_track_ids: list = field(default_factory=list)
+    active_vehicle_track_ids: list = field(default_factory=list)
     line_counts: list = field(default_factory=list)
     zone_counts: list = field(default_factory=list)
+    reads: list = field(default_factory=list)
 
 
 def _open_capture(stream_url: str) -> Optional[cv2.VideoCapture]:
@@ -97,6 +116,35 @@ def _draw_zones(frame, resolved_zones: list[ResolvedZone], zone_counts: dict) ->
         )
 
 
+def _draw_reads(frame, read_overlays: Iterable[ReadEntry]) -> None:
+    for read in read_overlays:
+        polygon = np.array([[int(x), int(y)] for x, y in read.points], dtype=np.int32)
+        cv2.polylines(frame, [polygon], True, READ_COLOR, 2)
+        text = ascii_label(read.value)[:MAX_OVERLAY_TEXT_CHARS]
+        cv2.putText(
+            frame,
+            f"{READ_LABELS.get(read.kind, read.kind)}: {text}",
+            (int(polygon[:, 0].min()), max(int(polygon[:, 1].min()) - 6, 12)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            READ_COLOR,
+            2,
+        )
+
+
+def _line_label(name: str, counts: dict, modules: Iterable[str]) -> str:
+    """People counts read exactly as they did before vehicles existed; vehicle counts are
+    appended only when the Vehicles module is on, and a vehicles-only camera shows just
+    those."""
+    modules = set(modules)
+    parts = []
+    if PEOPLE in modules:
+        parts.append(f"{counts['in']} in / {counts['out']} out")
+    if VEHICLES in modules:
+        parts.append(f"veh {counts['vehicle_in']} in / {counts['vehicle_out']} out")
+    return f"{name}: {' | '.join(parts)}" if parts else name
+
+
 def _draw_and_encode(
     frame,
     result,
@@ -104,28 +152,31 @@ def _draw_and_encode(
     line_counts: dict,
     resolved_zones: list[ResolvedZone],
     zone_counts: dict,
-) -> tuple[Optional[bytes], list]:
+    read_overlays: Iterable[ReadEntry] = (),
+    modules: Iterable[str] = DEFAULT_MODULES,
+) -> Optional[bytes]:
+    """`result` is None for a camera with no detector-backed module (e.g. QR only)."""
     _draw_zones(frame, resolved_zones, zone_counts)
 
-    track_ids: list[int] = []
-    for box in result.boxes:
-        x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
-        track_id = int(box.id.item()) if box.id is not None else None
-        if track_id is not None:
-            track_ids.append(track_id)
-        label = f"person #{track_id}" if track_id is not None else "person"
-        cv2.rectangle(frame, (x1, y1), (x2, y2), BOX_COLOR, 2)
-        cv2.putText(frame, label, (x1, max(y1 - 8, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, BOX_COLOR, 2)
+    if result is not None:
+        for box in result.boxes:
+            x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+            class_id = int(box.cls.item())
+            is_vehicle = class_id in VEHICLE_CLASS_IDS
+            color = VEHICLE_COLOR if is_vehicle else BOX_COLOR
+            name = result.names[class_id] if is_vehicle else "person"
+            label = f"{name} #{int(box.id.item())}" if box.id is not None else name
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, max(y1 - 8, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+    empty_counts = {"in": 0, "out": 0, "vehicle_in": 0, "vehicle_out": 0}
     for rl in resolved_lines:
-        counts = line_counts.get(rl.id, {"in": 0, "out": 0})
         p1 = (int(rl.line.x1), int(rl.line.y1))
         p2 = (int(rl.line.x2), int(rl.line.y2))
         cv2.line(frame, p1, p2, LINE_COLOR, 2)
-        label = f"{rl.name}: {counts['in']} in / {counts['out']} out"
         cv2.putText(
             frame,
-            label,
+            _line_label(rl.name, line_counts.get(rl.id, empty_counts), modules),
             (min(p1[0], p2[0]), max(min(p1[1], p2[1]) - 8, 0)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
@@ -133,16 +184,20 @@ def _draw_and_encode(
             2,
         )
 
+    _draw_reads(frame, read_overlays)
+
     ok, encoded = cv2.imencode(".jpg", frame)
-    return (encoded.tobytes() if ok else None), track_ids
+    return encoded.tobytes() if ok else None
 
 
-def _track_points(result) -> dict:
-    """Bottom-center of each tracked box (feet position) — more accurate for
-    ground-plane line crossing than the box center."""
+def _track_points(result, class_ids: Iterable[int] = (PERSON_CLASS_ID,)) -> dict:
+    """Bottom-center of each tracked box of the given classes (feet position for people,
+    where a vehicle meets the ground) — more accurate for ground-plane line crossing than
+    the box center. Boxes the tracker hasn't assigned an id yet are skipped."""
+    class_ids = set(class_ids)
     points: dict[int, Point] = {}
     for box in result.boxes:
-        if box.id is None:
+        if box.id is None or int(box.cls.item()) not in class_ids:
             continue
         track_id = int(box.id.item())
         x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -159,11 +214,17 @@ class TrackingSession:
         password: Optional[str],
         lines: Optional[list[LineConfig]] = None,
         zones: Optional[list[ZoneConfig]] = None,
+        modules: Optional[Iterable[str]] = None,
     ):
         self.camera_id = camera_id
         self._stream_url = build_stream_url(rtsp_url, username, password)
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+
+        # Which AI modules run is a snapshot taken at start, like lines and zones. None
+        # means the people-only behavior every session had before module selection.
+        self._modules: frozenset[str] = frozenset(DEFAULT_MODULES if modules is None else modules)
+        self._class_ids: list[int] = detector_class_ids(self._modules)
 
         self._status = "starting"
         self._error: Optional[str] = None
@@ -171,6 +232,7 @@ class TrackingSession:
         self._started_at = datetime.now(timezone.utc)
         self._last_frame_at: Optional[datetime] = None
         self._active_track_ids: list[int] = []
+        self._active_vehicle_track_ids: list[int] = []
         self._latest_jpeg: Optional[bytes] = None
         # The annotated ndarray behind _latest_jpeg. Kept so the heatmap can be blended
         # onto it on request, rather than encoding a second JPEG every frame for a view
@@ -182,14 +244,28 @@ class TrackingSession:
         # real frame reveals this camera's actual resolution.
         self._line_configs: list[LineConfig] = lines or []
         self._resolved_lines: Optional[list[ResolvedLine]] = None
-        self._previous_positions: dict[int, Point] = {}
-        self._line_counts: dict[uuid.UUID, dict[str, int]] = {lc.id: {"in": 0, "out": 0} for lc in self._line_configs}
+        # Kept per group so a track whose class flips between frames (a person briefly
+        # detected as a bus) can't register a crossing against its old group's position.
+        self._previous_positions: dict[str, dict[int, Point]] = {"person": {}, "vehicle": {}}
+        self._line_counts: dict[uuid.UUID, dict[str, int]] = {
+            lc.id: {"in": 0, "out": 0, "vehicle_in": 0, "vehicle_out": 0} for lc in self._line_configs
+        }
 
         self._zone_configs: list[ZoneConfig] = zones or []
         self._resolved_zones: Optional[list[ResolvedZone]] = None
         self._zone_counts: dict[uuid.UUID, int] = {zc.id: 0 for zc in self._zone_configs}
 
         self._heatmap: Optional[HeatmapAccumulator] = None
+
+        # The reading modules. QR/barcode decoding is cheap and runs inline on each frame;
+        # OCR gets its own worker thread (see app/scanning.py for why).
+        self._reads = ReadRegistry()
+        self._code_scanner: Optional[CodeScanner] = CodeScanner(self._modules)
+        if not self._code_scanner.enabled:
+            self._code_scanner = None
+        self._ocr_worker: Optional[OcrWorker] = (
+            OcrWorker(TextReader(), self._reads, self._stop_event) if OCR in self._modules else None
+        )
 
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -199,6 +275,8 @@ class TrackingSession:
     def stop(self) -> None:
         self._stop_event.set()
         self._thread.join(timeout=READ_TIMEOUT_MS / 1000 + 5)
+        if self._ocr_worker is not None and self._ocr_worker.started:
+            self._ocr_worker.join(timeout=5)
 
     def snapshot(self) -> TrackingStatusSnapshot:
         with self._lock:
@@ -208,6 +286,8 @@ class TrackingSession:
                     "name": lc.name,
                     "in_count": self._line_counts[lc.id]["in"],
                     "out_count": self._line_counts[lc.id]["out"],
+                    "vehicle_in_count": self._line_counts[lc.id]["vehicle_in"],
+                    "vehicle_out_count": self._line_counts[lc.id]["vehicle_out"],
                 }
                 for lc in self._line_configs
             ]
@@ -222,8 +302,10 @@ class TrackingSession:
                 started_at=self._started_at,
                 last_frame_at=self._last_frame_at,
                 active_track_ids=list(self._active_track_ids),
+                active_vehicle_track_ids=list(self._active_vehicle_track_ids),
                 line_counts=line_counts,
                 zone_counts=zone_counts,
+                reads=self._reads.snapshot(),
             )
 
     def latest_frame(self, heatmap: bool = False) -> Optional[bytes]:
@@ -244,21 +326,24 @@ class TrackingSession:
             self._status = status
             self._error = error
 
-    def _update_counts(self, track_points: dict) -> None:
+    def _update_counts(self, track_points: dict, group: str = "person") -> None:
         """Compares each currently-visible track's position against its last-seen
-        position to detect line crossings. Independently testable by calling directly
+        position to detect line crossings, counting people and vehicles separately
+        (`group` is "person" or "vehicle"). Independently testable by calling directly
         with synthetic sequential positions — no video/model required."""
+        key_prefix = "" if group == "person" else "vehicle_"
+        previous_positions = self._previous_positions[group]
         if self._resolved_lines:
             for track_id, curr in track_points.items():
-                prev = self._previous_positions.get(track_id)
+                prev = previous_positions.get(track_id)
                 if prev is None:
                     continue
                 for rl in self._resolved_lines:
                     direction = classify_crossing(rl.line, prev, curr)
                     if direction is not None:
                         with self._lock:
-                            self._line_counts[rl.id][direction] += 1
-        self._previous_positions = track_points
+                            self._line_counts[rl.id][key_prefix + direction] += 1
+        self._previous_positions[group] = track_points
 
     def _update_zones(self, track_points: dict) -> None:
         """How many currently-visible tracks stand inside each zone. A live count of this
@@ -273,12 +358,33 @@ class TrackingSession:
         with self._lock:
             self._zone_counts = counts
 
-    def _record_frame(self, jpeg: Optional[bytes], track_ids: list, annotated_frame: np.ndarray) -> None:
+    def _scan_frame(self, frame: np.ndarray) -> None:
+        """Feeds the reading modules. Must be given the *raw* frame, before anything is
+        drawn on it, or the overlays would be decoded/read back as content."""
+        if self._code_scanner is not None:
+            try:
+                for read in self._code_scanner.scan(frame):
+                    self._reads.record(read.kind, read.value, read.detail, read.points)
+            except Exception:
+                # One bad frame must not end a session that is otherwise tracking fine.
+                logger.exception("QR/barcode scan failed on a frame")
+        if self._ocr_worker is not None and self._ocr_worker.wants_frame():
+            # A copy: the loop is about to draw on `frame`, and OCR takes about a second.
+            self._ocr_worker.submit(frame.copy())
+
+    def _record_frame(
+        self,
+        jpeg: Optional[bytes],
+        track_ids: list,
+        annotated_frame: np.ndarray,
+        vehicle_track_ids: Iterable[int] = (),
+    ) -> None:
         with self._lock:
             self._status = "running"
             self._frame_count += 1
             self._last_frame_at = datetime.now(timezone.utc)
             self._active_track_ids = track_ids
+            self._active_vehicle_track_ids = list(vehicle_track_ids)
             if jpeg is not None:
                 self._latest_jpeg = jpeg
                 self._latest_frame = annotated_frame
@@ -300,12 +406,16 @@ class TrackingSession:
         return None
 
     def _run(self) -> None:
-        model = YOLO(MODEL_WEIGHTS)
+        # No detector for a camera that only reads QR codes/barcodes/text: skip loading
+        # YOLO entirely (its ~6-7s warm-up and its CPU cost) and just feed the scanners.
+        model = YOLO(MODEL_WEIGHTS) if self._class_ids else None
         cap = _open_capture(self._stream_url)
         if cap is None:
             self._set_status("error", "Could not open stream (unreachable, refused, or unsupported)")
             return
         self._set_status("running")
+        if self._ocr_worker is not None:
+            self._ocr_worker.start()
 
         try:
             while not self._stop_event.is_set():
@@ -326,23 +436,42 @@ class TrackingSession:
                     with self._lock:
                         self._heatmap = HeatmapAccumulator(width, height)
 
-                results = model.track(
-                    frame, persist=True, classes=[PERSON_CLASS_ID], tracker="bytetrack.yaml", verbose=False
+                result = None
+                person_points: dict[int, Point] = {}
+                vehicle_points: dict[int, Point] = {}
+                if model is not None:
+                    result = model.track(
+                        frame, persist=True, classes=self._class_ids, tracker="bytetrack.yaml", verbose=False
+                    )[0]
+                    person_points = _track_points(result, (PERSON_CLASS_ID,))
+                    vehicle_points = _track_points(result, VEHICLE_CLASS_IDS)
+
+                self._update_counts(person_points, "person")
+                self._update_counts(vehicle_points, "vehicle")
+                # Zones and the heatmap are people-only in this phase.
+                self._update_zones(person_points)
+                self._heatmap.add(person_points.values())
+                # On the raw frame, before _draw_and_encode draws over it.
+                self._scan_frame(frame)
+                jpeg = _draw_and_encode(
+                    frame,
+                    result,
+                    self._resolved_lines,
+                    self._line_counts,
+                    self._resolved_zones,
+                    self._zone_counts,
+                    read_overlays=self._reads.recent_overlays(),
+                    modules=self._modules,
                 )
-                result = results[0]
-                track_points = _track_points(result)
-                self._update_counts(track_points)
-                self._update_zones(track_points)
-                self._heatmap.add(track_points.values())
-                jpeg, track_ids = _draw_and_encode(
-                    frame, result, self._resolved_lines, self._line_counts, self._resolved_zones, self._zone_counts
-                )
-                self._record_frame(jpeg, track_ids, frame)
+                self._record_frame(jpeg, list(person_points), frame, list(vehicle_points))
 
                 remaining = MIN_FRAME_INTERVAL_SECONDS - (time.monotonic() - loop_start)
                 if remaining > 0:
                     self._stop_event.wait(remaining)
         finally:
+            # Also releases the OCR worker when the session ends without stop() being
+            # called (e.g. it gave up reconnecting), so its thread doesn't linger.
+            self._stop_event.set()
             # cap can be None here: _reconnect_loop() returns None both when it gives
             # up (already released its last attempt) and when stop() interrupts a wait.
             if cap is not None:
@@ -365,12 +494,13 @@ class TrackingManager:
         password: Optional[str],
         lines: Optional[list[LineConfig]] = None,
         zones: Optional[list[ZoneConfig]] = None,
+        modules: Optional[Iterable[str]] = None,
     ) -> TrackingSession:
         with self._lock:
             existing = self._sessions.get(camera_id)
             if existing is not None and existing.snapshot().status in ("starting", "running", "reconnecting"):
                 return existing
-            session = TrackingSession(camera_id, rtsp_url, username, password, lines, zones)
+            session = TrackingSession(camera_id, rtsp_url, username, password, lines, zones, modules)
             self._sessions[camera_id] = session
         session.start()
         return session

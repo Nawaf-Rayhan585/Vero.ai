@@ -3,7 +3,24 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.modules import DEFAULT_MODULES
+
+
+class AIModuleName(str, Enum):
+    people = "people"
+    vehicles = "vehicles"
+    ocr = "ocr"
+    qr = "qr"
+    barcode = "barcode"
+
+
+def _unique_module_ids(value):
+    """Stored as plain strings in a JSONB list; a repeated tick collapses to one."""
+    if value is None:
+        return None
+    return list(dict.fromkeys(m.value if isinstance(m, AIModuleName) else m for m in value))
 
 
 class ConnectionStatus(str, Enum):
@@ -23,8 +40,24 @@ class TrackingStatusValue(str, Enum):
 class LineCountRead(BaseModel):
     line_id: str
     name: str
+    # People. Named as in Phase 6 so existing clients keep working.
     in_count: int
     out_count: int
+    vehicle_in_count: int = 0
+    vehicle_out_count: int = 0
+
+
+class ReadRead(BaseModel):
+    """One thing a reading module has seen this session (a QR code, a barcode, or a line
+    of text), deduplicated by kind + value. Not an event and not persisted — Phase 9."""
+
+    kind: AIModuleName
+    value: str
+    # Symbology for QR/barcode ("QR Code", "Code 128"); OCR confidence for text.
+    detail: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    sightings: int
 
 
 class ZoneCountRead(BaseModel):
@@ -40,8 +73,10 @@ class TrackingStatusRead(BaseModel):
     started_at: Optional[datetime] = None
     last_frame_at: Optional[datetime] = None
     active_track_ids: list[int] = Field(default_factory=list)
+    active_vehicle_track_ids: list[int] = Field(default_factory=list)
     line_counts: list[LineCountRead] = Field(default_factory=list)
     zone_counts: list[ZoneCountRead] = Field(default_factory=list)
+    reads: list[ReadRead] = Field(default_factory=list)
 
 
 class LineCreate(BaseModel):
@@ -86,15 +121,22 @@ class ZoneRead(BaseModel):
 
 
 class CameraCreate(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     name: str = Field(min_length=1, max_length=200)
     rtsp_url: str = Field(min_length=1)
     username: Optional[str] = Field(default=None, max_length=200)
     password: Optional[str] = None
     location_label: Optional[str] = Field(default=None, max_length=200)
     notes: Optional[str] = None
+    enabled_modules: list[AIModuleName] = Field(default_factory=lambda: list(DEFAULT_MODULES))
+
+    _dedupe_modules = field_validator("enabled_modules", mode="after")(_unique_module_ids)
 
 
 class CameraUpdate(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     rtsp_url: Optional[str] = Field(default=None, min_length=1)
     username: Optional[str] = Field(default=None, max_length=200)
@@ -102,6 +144,11 @@ class CameraUpdate(BaseModel):
     password: Optional[str] = None
     location_label: Optional[str] = Field(default=None, max_length=200)
     notes: Optional[str] = None
+    # Omit to leave the selection unchanged; [] is allowed (tracking just won't start
+    # until at least one module is enabled).
+    enabled_modules: Optional[list[AIModuleName]] = None
+
+    _dedupe_modules = field_validator("enabled_modules", mode="after")(_unique_module_ids)
 
 
 class CameraRead(BaseModel):
@@ -122,6 +169,7 @@ class CameraRead(BaseModel):
     last_fps: Optional[float] = None
     last_width: Optional[int] = None
     last_height: Optional[int] = None
+    enabled_modules: list[AIModuleName]
 
 
 def camera_to_read(camera) -> "CameraRead":
@@ -142,6 +190,7 @@ def camera_to_read(camera) -> "CameraRead":
         last_fps=camera.last_fps,
         last_width=camera.last_width,
         last_height=camera.last_height,
+        enabled_modules=camera.enabled_modules,
     )
 
 

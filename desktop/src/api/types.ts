@@ -33,6 +33,9 @@ export interface CreateJobRequest {
 
 export type ConnectionStatus = "unknown" | "online" | "offline";
 
+/** The AI modules a camera can run — ids match the backend (app/modules.py). */
+export type AIModule = "people" | "vehicles" | "ocr" | "qr" | "barcode";
+
 export interface Camera {
   id: string;
   name: string;
@@ -49,6 +52,7 @@ export interface Camera {
   last_fps: number | null;
   last_width: number | null;
   last_height: number | null;
+  enabled_modules: AIModule[];
 }
 
 export interface CameraCreateRequest {
@@ -58,6 +62,7 @@ export interface CameraCreateRequest {
   password?: string | null;
   location_label?: string | null;
   notes?: string | null;
+  enabled_modules?: AIModule[];
 }
 
 export type CameraUpdateRequest = Partial<CameraCreateRequest>;
@@ -67,8 +72,23 @@ export type TrackingStatusValue = "starting" | "running" | "reconnecting" | "err
 export interface LineCount {
   line_id: string;
   name: string;
+  /** People. Vehicles are counted separately below. */
   in_count: number;
   out_count: number;
+  vehicle_in_count: number;
+  vehicle_out_count: number;
+}
+
+/** One thing a reading module has seen this session, deduplicated by kind + value.
+ * Ephemeral — not an event and not stored (that is a later phase). */
+export interface Read {
+  kind: AIModule;
+  value: string;
+  /** Symbology for QR/barcode ("QR Code", "Code 128"); OCR confidence (0-1) for text. */
+  detail: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  sightings: number;
 }
 
 export interface ZoneCount {
@@ -84,8 +104,10 @@ export interface TrackingStatus {
   started_at: string | null;
   last_frame_at: string | null;
   active_track_ids: number[];
+  active_vehicle_track_ids: number[];
   line_counts: LineCount[];
   zone_counts: ZoneCount[];
+  reads: Read[];
 }
 
 export interface Line {

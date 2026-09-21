@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.modules import DEFAULT_MODULES
 
 
 class Camera(Base):
@@ -37,6 +38,14 @@ class Camera(Base):
     last_fps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Which AI modules this camera runs (ids from app.modules). Applied when tracking
+    # starts, like lines and zones. Cameras created before per-camera selection existed
+    # got the server default, i.e. the people-only behavior they always had.
+    enabled_modules: Mapped[list] = mapped_column(
+        JSONB,
+        default=lambda: list(DEFAULT_MODULES),
+        server_default=text("""'["people"]'::jsonb"""),
+    )
 
 
 class Line(Base):

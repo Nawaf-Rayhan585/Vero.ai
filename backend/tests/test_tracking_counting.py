@@ -39,7 +39,16 @@ class TestUpdateCountsDirectly:
         session._update_counts({1: Point(600, 500)})  # now right of the line -> crossed
 
         counts = session.snapshot().line_counts
-        assert counts == [{"line_id": str(line_config.id), "name": "Test line", "in_count": 1, "out_count": 0}]
+        assert counts == [
+            {
+                "line_id": str(line_config.id),
+                "name": "Test line",
+                "in_count": 1,
+                "out_count": 0,
+                "vehicle_in_count": 0,  # a person's crossing never lands in the vehicle counts
+                "vehicle_out_count": 0,
+            }
+        ]
 
     def test_the_same_track_crossing_back_increments_out(self):
         line_config = _line_config()
@@ -85,8 +94,15 @@ class TestUpdateCountsDirectly:
         session._update_counts({1: Point(350, 500), 2: Point(750, 500)})  # track 1 crosses line_a, track 2 crosses line_b
 
         by_id = {c["line_id"]: c for c in session.snapshot().line_counts}
-        assert by_id[str(line_a.id)] == {"line_id": str(line_a.id), "name": "Test line", "in_count": 1, "out_count": 0}
-        assert by_id[str(line_b.id)] == {"line_id": str(line_b.id), "name": "Test line", "in_count": 1, "out_count": 0}
+        for line in (line_a, line_b):
+            assert by_id[str(line.id)] == {
+                "line_id": str(line.id),
+                "name": "Test line",
+                "in_count": 1,
+                "out_count": 0,
+                "vehicle_in_count": 0,
+                "vehicle_out_count": 0,
+            }
 
     def test_a_track_that_disappears_and_a_new_one_reusing_the_id_does_not_falsely_cross(self):
         # _previous_positions is fully replaced each call, so a track missing from one

@@ -41,6 +41,7 @@ def create_camera(request: CameraCreate, db: Session = Depends(get_db)):
         location_label=request.location_label,
         notes=request.notes,
         connection_status="unknown",
+        enabled_modules=request.enabled_modules,
     )
     db.add(camera)
     db.commit()
@@ -62,6 +63,9 @@ def get_camera(camera_id: str, db: Session = Depends(get_db)):
 def update_camera(camera_id: str, request: CameraUpdate, db: Session = Depends(get_db)):
     camera = _get_camera_or_404(db, camera_id)
     updates = request.model_dump(exclude_unset=True)
+    # An explicit null means "leave it as is", not "clear it" — the column is NOT NULL.
+    if updates.get("enabled_modules", ...) is None:
+        updates.pop("enabled_modules", None)
 
     if "password" in updates:
         password = updates.pop("password")

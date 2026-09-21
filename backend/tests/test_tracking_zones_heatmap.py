@@ -113,8 +113,7 @@ class TestUpdateZonesDirectly:
 class TestDrawingZones:
     def _draw(self, resolved_zones, zone_counts):
         frame = np.zeros((200, 200, 3), dtype=np.uint8)
-        jpeg, track_ids = _draw_and_encode(frame, SimpleNamespace(boxes=[]), [], {}, resolved_zones, zone_counts)
-        assert track_ids == []
+        jpeg = _draw_and_encode(frame, SimpleNamespace(boxes=[]), [], {}, resolved_zones, zone_counts)
         return cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
 
     def test_a_zone_is_filled_and_labelled_on_the_frame(self):

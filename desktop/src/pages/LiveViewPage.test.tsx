@@ -29,6 +29,7 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     last_fps: null,
     last_width: null,
     last_height: null,
+    enabled_modules: ["people"],
     ...overrides,
   };
 }
@@ -43,6 +44,8 @@ function makeTrackingStatus(overrides: Partial<TrackingStatus> = {}): TrackingSt
     active_track_ids: [],
     line_counts: [],
     zone_counts: [],
+    active_vehicle_track_ids: [],
+    reads: [],
     ...overrides,
   };
 }

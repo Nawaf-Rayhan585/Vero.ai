@@ -85,7 +85,29 @@ Normal operation sends structured events to the cloud, not video frames. Example
 - **Zone event**: `camera_id`, `zone_id`, `timestamp`, `event_type`
 - **OCR event**: `camera_id`, `timestamp`, `detected_text`
 
-Exact schema is designed in a later phase.
+### Event schema (designed in Phase 9)
+
+Events are stored locally in PostgreSQL, in one flat `events` table. They are flat columns rather than a JSON blob because analytics group by these fields, and a flat row is what a later cloud sync will send. An event never holds video or images.
+
+| Column | Meaning |
+|---|---|
+| `id` | UUID |
+| `camera_id` | The camera. Deleting a camera deletes its events (like its lines and zones). |
+| `occurred_at` | When it happened (timestamp with time zone). |
+| `event_type` | `line_crossed`, `zone_entered`, `zone_exited`, `read`, `tracking_started`, `tracking_stopped`, `tracking_error`, `tracking_reconnecting`, `tracking_resumed` |
+| `category` | `person` or `vehicle` for crossings and zone events; `qr`, `barcode` or `ocr` for reads |
+| `direction` | `in` or `out` (line crossings) |
+| `subject_id`, `subject_name` | The line or zone concerned. Deliberately *not* a foreign key: a line or zone can be deleted later, and the history keeps the name it had at the time. |
+| `value` | The text read, or an error message |
+| `detail` | The code's symbology (e.g. "Code 128") or the OCR confidence |
+
+How the examples above map onto it: "Person entered" is a `line_crossed` event (`category` person, `direction` in); the "Zone event" is `zone_entered` / `zone_exited`; the "OCR event" is a `read` event (`category` ocr, `value` the detected text). "Daily analytics" is deliberately **not** a stored record: totals and trends are computed on demand from the events (`/analytics/summary`, `/analytics/timeseries`), so there is a single source of truth and nothing to fall out of sync. The `tracking_*` events record when a camera was actually being watched, which is what lets a chart tell "nobody came" from "not running".
+
+A `read` is one event per *sighting* — the first time a value is seen, or again after a short gap — not one per frame it stays in view. A zone `entered` is a visit: someone hidden for more than about five seconds and then reappearing counts again.
+
+Heat is stored separately in `heatmap_snapshots`: one row per camera per UTC hour, holding a small compressed grid of where people stood (about 1 KB), merged as more accumulates. Historical heatmaps are drawn from these, over a fresh camera snapshot when the camera answers or a plain background when it doesn't. No video frame is stored.
+
+Delivery is **at-most-once**: events pass through a bounded in-memory queue, so a hard crash can lose the last second or so, a database outage is retried but not indefinitely, and the writer never blocks or crashes tracking.
 
 ## Technology stack
 

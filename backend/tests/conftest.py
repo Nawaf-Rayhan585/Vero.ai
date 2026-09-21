@@ -63,7 +63,7 @@ def clean_tables(test_database):
     from app.database import engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines, zones"))
+        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines, zones, events, heatmap_snapshots"))
 
 
 @pytest.fixture
@@ -164,3 +164,51 @@ def scan_video(tmp_path, scan_scene):
     writer.release()
     contents.path = str(video_path)
     return contents
+
+
+@pytest.fixture
+def add_event(db_session):
+    """Factory: inserts one event row directly, with a chosen timestamp, and returns it.
+    Analytics tests seed their data this way so the expected numbers are exact and known."""
+    import uuid
+
+    from app.models import Event
+
+    def add(camera_id, event_type, at, **fields):
+        row = Event(camera_id=uuid.UUID(str(camera_id)), event_type=event_type, occurred_at=at, **fields)
+        db_session.add(row)
+        db_session.commit()
+        return row
+
+    return add
+
+
+@pytest.fixture
+def add_heat(db_session):
+    """Factory: inserts one hourly heatmap snapshot. cells maps (row, col) -> heat count."""
+    import uuid
+
+    import numpy as np
+
+    from app.heatmap import encode_grid
+    from app.models import HeatmapSnapshot
+
+    def add(camera_id, period_start, cells, frame=(800, 400), grid_width=80, grid_height=40):
+        grid = np.zeros((grid_height, grid_width), dtype=np.uint32)
+        for (row, col), count in cells.items():
+            grid[row, col] = count
+        snapshot = HeatmapSnapshot(
+            camera_id=uuid.UUID(str(camera_id)),
+            period_start=period_start,
+            frame_width=frame[0],
+            frame_height=frame[1],
+            grid_width=grid_width,
+            grid_height=grid_height,
+            cells=encode_grid(grid),
+            sample_count=int(grid.sum()),
+        )
+        db_session.add(snapshot)
+        db_session.commit()
+        return snapshot
+
+    return add

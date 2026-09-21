@@ -147,3 +147,101 @@ export interface ZoneCreateRequest {
   name: string;
   points: ZonePoint[];
 }
+
+export type EventType =
+  | "line_crossed"
+  | "zone_entered"
+  | "zone_exited"
+  | "read"
+  | "tracking_started"
+  | "tracking_stopped"
+  | "tracking_error"
+  | "tracking_reconnecting"
+  | "tracking_resumed";
+
+/** One stored event. The backend calls it an Event; AppEvent avoids clashing with the DOM's. */
+export interface AppEvent {
+  id: string;
+  camera_id: string;
+  camera_name: string;
+  occurred_at: string;
+  event_type: EventType;
+  /** "person" / "vehicle" for crossings and zones; "qr" / "barcode" / "ocr" for reads. */
+  category: string | null;
+  direction: string | null;
+  subject_id: string | null;
+  subject_name: string | null;
+  value: string | null;
+  detail: string | null;
+}
+
+export interface EventList {
+  events: AppEvent[];
+  /** Pass back as `before` for the next (older) page; null on the last page. */
+  next_before: string | null;
+}
+
+export interface LineSummary {
+  line_id: string | null;
+  name: string | null;
+  people_in: number;
+  people_out: number;
+  vehicle_in: number;
+  vehicle_out: number;
+}
+
+export interface ZoneSummary {
+  zone_id: string | null;
+  name: string | null;
+  entered: number;
+  exited: number;
+}
+
+export interface AnalyticsSummary {
+  since: string;
+  until: string;
+  people_in: number;
+  people_out: number;
+  vehicle_in: number;
+  vehicle_out: number;
+  lines: LineSummary[];
+  zones: ZoneSummary[];
+  reads: { qr: number; barcode: number; ocr: number };
+  /** Camera-seconds tracking was actually running in the range (summed over cameras). */
+  tracked_seconds: number;
+}
+
+export interface TimeseriesPoint {
+  start: string;
+  end: string;
+  people_in: number;
+  people_out: number;
+  vehicle_in: number;
+  vehicle_out: number;
+  zone_entered: number;
+  zone_exited: number;
+  reads: number;
+  /** 0 means nothing was being tracked: "not running", not "no traffic". */
+  tracked_seconds: number;
+}
+
+export interface Timeseries {
+  bucket: "hour" | "day";
+  tz: string;
+  since: string;
+  until: string;
+  points: TimeseriesPoint[];
+}
+
+export interface HeatmapInfo {
+  camera_id: string;
+  available: boolean;
+  samples: number;
+  frame_width: number | null;
+  frame_height: number | null;
+  grid_width: number | null;
+  grid_height: number | null;
+  first_period: string | null;
+  last_period: string | null;
+  ignored_samples: number;
+}

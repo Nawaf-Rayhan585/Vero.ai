@@ -5,6 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.events import EVENT_TYPES
 from app.modules import DEFAULT_MODULES
 
 
@@ -21,6 +22,11 @@ def _unique_module_ids(value):
     if value is None:
         return None
     return list(dict.fromkeys(m.value if isinstance(m, AIModuleName) else m for m in value))
+
+
+# Built from app.events.EVENT_TYPES so the API's accepted values can't drift from the ones the
+# tracking code emits.
+EventTypeName = Enum("EventTypeName", {t: t for t in EVENT_TYPES}, type=str)
 
 
 class ConnectionStatus(str, Enum):
@@ -228,3 +234,96 @@ class JobRead(BaseModel):
     created_at: datetime
     result: Optional[dict] = None
     error: Optional[str] = None
+
+
+class EventRead(BaseModel):
+    """One stored event (see docs/ARCHITECTURE.md, "Event schema")."""
+
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    camera_name: str
+    occurred_at: datetime
+    event_type: EventTypeName
+    category: Optional[str] = None
+    direction: Optional[str] = None
+    subject_id: Optional[uuid.UUID] = None
+    subject_name: Optional[str] = None
+    value: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class EventListRead(BaseModel):
+    events: list[EventRead]
+    # Pass back as `before` to get the next (older) page; null when this was the last one.
+    next_before: Optional[str] = None
+
+
+class LineSummaryRead(BaseModel):
+    line_id: Optional[uuid.UUID] = None
+    name: Optional[str] = None
+    people_in: int
+    people_out: int
+    vehicle_in: int
+    vehicle_out: int
+
+
+class ZoneSummaryRead(BaseModel):
+    zone_id: Optional[uuid.UUID] = None
+    name: Optional[str] = None
+    entered: int
+    exited: int
+
+
+class ReadsSummaryRead(BaseModel):
+    qr: int
+    barcode: int
+    ocr: int
+
+
+class AnalyticsSummaryRead(BaseModel):
+    since: datetime
+    until: datetime
+    people_in: int
+    people_out: int
+    vehicle_in: int
+    vehicle_out: int
+    lines: list[LineSummaryRead]
+    zones: list[ZoneSummaryRead]
+    reads: ReadsSummaryRead
+    # Camera-seconds that tracking was actually running in the range (summed over cameras).
+    tracked_seconds: float
+
+
+class TimeseriesPointRead(BaseModel):
+    start: datetime
+    end: datetime
+    people_in: int
+    people_out: int
+    vehicle_in: int
+    vehicle_out: int
+    zone_entered: int
+    zone_exited: int
+    reads: int
+    # 0 means nothing was being tracked: "not running", not "no traffic".
+    tracked_seconds: float
+
+
+class TimeseriesRead(BaseModel):
+    bucket: str
+    tz: str
+    since: datetime
+    until: datetime
+    points: list[TimeseriesPointRead]
+
+
+class HeatmapInfoRead(BaseModel):
+    camera_id: uuid.UUID
+    available: bool
+    samples: int = 0
+    frame_width: Optional[int] = None
+    frame_height: Optional[int] = None
+    grid_width: Optional[int] = None
+    grid_height: Optional[int] = None
+    first_period: Optional[datetime] = None
+    last_period: Optional[datetime] = None
+    ignored_samples: int = 0

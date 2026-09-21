@@ -1,8 +1,13 @@
 import { Link } from "react-router-dom";
+import { useMemo } from "react";
+import { useAnalyticsSummary } from "../hooks/useAnalytics";
 import { useHealth, useHealthDb } from "../hooks/useHealth";
 import { useJobs } from "../hooks/useJobs";
 import { useSettings } from "../settings/SettingsContext";
+import { StatTile, StatTiles } from "../components/StatTile";
 import { Button, Card, EmptyState, StatusBadge } from "../components/ui";
+import { formatDuration, formatNumber } from "../lib/format";
+import { todaySince } from "../lib/ranges";
 import type { Job, JobStatus } from "../api/types";
 
 const STATUS_ORDER: JobStatus[] = ["pending", "running", "completed", "failed"];
@@ -18,6 +23,8 @@ export function DashboardPage() {
   const health = useHealth();
   const healthDb = useHealthDb();
   const jobsQuery = useJobs();
+  const todayQuery = useMemo(() => ({ since: todaySince() }), []);
+  const today = useAnalyticsSummary(todayQuery);
 
   // React Query keeps the last successful `data` around even after a later background
   // refetch fails, so `data` alone can't tell "online" from "was online, now erroring".
@@ -56,6 +63,26 @@ export function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* If the summary can't be loaded the card is simply left out: the dashboard's job is to
+          show the backend is up, and a missing tile shouldn't look like an error of its own. */}
+      {today.data && !today.isError && (
+        <Card title="Today">
+          <StatTiles>
+            <StatTile label="People in" value={formatNumber(today.data.people_in)} />
+            <StatTile label="People out" value={formatNumber(today.data.people_out)} />
+            <StatTile label="Vehicles in" value={formatNumber(today.data.vehicle_in)} />
+            <StatTile label="Vehicles out" value={formatNumber(today.data.vehicle_out)} />
+            <StatTile
+              label="Reads"
+              value={formatNumber(today.data.reads.qr + today.data.reads.barcode + today.data.reads.ocr)}
+              hint="QR, barcode and text"
+            />
+            <StatTile label="Tracked" value={formatDuration(today.data.tracked_seconds)} hint="camera time today" />
+          </StatTiles>
+          <Link to="/analytics">See analytics</Link>
+        </Card>
+      )}
 
       <Card title="Recent detection jobs">
         <div className="row">

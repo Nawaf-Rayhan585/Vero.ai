@@ -1,0 +1,202 @@
+/* Chart colours. The two series colours are categorical slots 1 and 2 of the reference
+   palette, validated (scripts/validate_palette.js) against this app's own card surfaces:
+   light #ffffff and dark #2a2d31, all checks pass in both. Text never wears them; the
+   swatches and marks carry identity, the words stay in the text tokens. */
+.chart {
+  --chart-series-1: #2a78d6;
+  --chart-series-2: #eb6834;
+  --chart-grid: color-mix(in srgb, var(--color-border) 60%, transparent);
+  --chart-axis: var(--color-border);
+  --chart-tick: var(--color-text-muted);
+  --chart-hover: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --chart-hatch: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+
+  position: relative;
+  transition: opacity 0.15s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chart {
+    --chart-series-1: #3987e5;
+    --chart-series-2: #d95926;
+  }
+}
+
+/* Held at reduced opacity while a new slice loads: no skeleton, no jump. */
+.chart--stale {
+  opacity: 0.55;
+}
+
+.chart__empty {
+  color: var(--color-text-muted);
+}
+
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-height: 20px;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.chart__swatch--hatched {
+  background: repeating-linear-gradient(45deg, var(--chart-hatch) 0 2px, transparent 2px 5px);
+  outline: 1px solid var(--chart-grid);
+}
+
+.chart__plot {
+  position: relative;
+}
+
+.chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Gridlines and axes: solid hairlines, one step off the surface, never dashed. */
+.chart__grid,
+.chart__axis {
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart__grid {
+  stroke: var(--chart-grid);
+}
+
+.chart__axis {
+  stroke: var(--chart-axis);
+}
+
+.chart__tick {
+  font-size: 11px;
+  fill: var(--chart-tick);
+}
+
+.chart__hatch-line {
+  stroke: var(--chart-hatch);
+  stroke-width: 2;
+}
+
+.chart__hover {
+  fill: var(--chart-hover);
+}
+
+.chart__hit {
+  fill: transparent;
+  cursor: default;
+  outline: none;
+}
+
+.chart__hit:focus-visible {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart__tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 140px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chart__tooltip-title {
+  margin-bottom: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.chart__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Values lead, labels follow: the reader already has the series and wants the number. */
+.chart__tooltip-row strong {
+  font-size: 1rem;
+}
+
+.chart__tooltip-row span:last-child {
+  color: var(--color-text-muted);
+}
+
+.chart__key {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.chart__tooltip-note {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.chart__table-toggle {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.chart__table {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.chart__table caption {
+  text-align: left;
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-1);
+}
+
+.chart__table th,
+.chart__table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: right;
+}
+
+.chart__table th:first-child,
+.chart__table td:last-child {
+  text-align: left;
+}
+
+.chart__table thead th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.chart__table tbody th {
+  font-weight: 400;
+}

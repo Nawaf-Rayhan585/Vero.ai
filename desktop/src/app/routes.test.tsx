@@ -35,11 +35,25 @@ describe("app routing", () => {
     const user = userEvent.setup();
     renderWithProviders(<TestApp />);
 
-    await user.click(screen.getByRole("link", { name: "Events" }));
+    // Account is still an honest placeholder naming the phase that builds it.
+    await user.click(screen.getByRole("link", { name: "Account" }));
 
-    expect(screen.getByRole("link", { name: "Events" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getByText(/Phase 10/)).toBeInTheDocument();
+  });
+
+  it("Events and Analytics are real pages now, not placeholders", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TestApp />);
+
+    await user.click(screen.getByRole("link", { name: "Events" }));
     expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
-    expect(screen.getByText(/Phase 9/)).toBeInTheDocument();
+    expect(screen.queryByText(/Phase 9/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "Analytics" }));
+    expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
+    expect(screen.queryByText(/Phase 9/)).not.toBeInTheDocument();
   });
 
   it("renders NotFoundPage for an unknown path", () => {

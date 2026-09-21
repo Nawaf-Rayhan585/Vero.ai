@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.counting import LineConfig, Point
 from app.database import get_db
+from app.events import event_recorder
 from app.models import Line, Zone
 from app.routers.cameras import _decrypted_credentials, _get_camera_or_404
 from app.schemas import TrackingStatusRead
@@ -38,7 +39,7 @@ def start_tracking(camera_id: str, db: Session = Depends(get_db)):
             detail="Enable at least one AI module for this camera before starting tracking",
         )
     session = tracking_manager.start(
-        camera.id, camera.rtsp_url, username, password, lines, zones, camera.enabled_modules
+        camera.id, camera.rtsp_url, username, password, lines, zones, camera.enabled_modules, event_recorder
     )
     return _to_status_read(session.snapshot())
 

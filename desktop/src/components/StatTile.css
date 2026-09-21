@@ -1,0 +1,39 @@
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.stat-tiles--stale {
+  opacity: 0.55;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+/* Sentence case, no trailing colon. */
+.stat-tile__label {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+/* Proportional figures: tabular digits look loose at display sizes. */
+.stat-tile__value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.stat-tile__hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}

@@ -2,15 +2,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { healthApi } from "../api/health";
+import { analyticsApi } from "../api/analytics";
 import { jobsApi } from "../api/jobs";
 import { DashboardPage } from "./DashboardPage";
-import type { Job } from "../api/types";
+import type { AnalyticsSummary, Job } from "../api/types";
 
 vi.mock("../api/health");
 vi.mock("../api/jobs");
+vi.mock("../api/analytics");
 
 const healthMock = vi.mocked(healthApi);
 const jobsMock = vi.mocked(jobsApi);
+const analyticsMock = vi.mocked(analyticsApi);
+
+function makeSummary(overrides: Partial<AnalyticsSummary> = {}): AnalyticsSummary {
+  return {
+    since: "2026-03-10T00:00:00Z",
+    until: "2026-03-10T15:00:00Z",
+    people_in: 42,
+    people_out: 40,
+    vehicle_in: 5,
+    vehicle_out: 4,
+    lines: [],
+    zones: [],
+    reads: { qr: 1, barcode: 2, ocr: 3 },
+    tracked_seconds: 5400,
+    ...overrides,
+  };
+}
 
 function makeJob(overrides: Partial<Job>): Job {
   return {
@@ -31,6 +50,7 @@ describe("DashboardPage", () => {
     healthMock.health.mockResolvedValue({ status: "ok" });
     healthMock.healthDb.mockResolvedValue({ status: "ok" });
     jobsMock.list.mockResolvedValue([]);
+    analyticsMock.summary.mockResolvedValue(makeSummary());
   });
 
   afterEach(() => {
@@ -96,5 +116,37 @@ describe("DashboardPage", () => {
     screen.getByRole("button", { name: /refresh/i }).click();
 
     await waitFor(() => expect(jobsMock.list.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
+  it("shows today's totals, and links to the full analytics", async () => {
+    renderWithProviders(<DashboardPage />);
+
+    await screen.findByText("Today");
+    const tileValue = (label: string) => screen.getByText(label).closest(".stat-tile")?.textContent ?? "";
+    expect(tileValue("People in")).toContain("42");
+    expect(tileValue("People out")).toContain("40");
+    expect(tileValue("Vehicles in")).toContain("5");
+    expect(tileValue("Reads")).toContain("6");
+    expect(tileValue("Tracked")).toContain("1 h 30 min");
+    expect(screen.getByRole("link", { name: "See analytics" })).toHaveAttribute("href", "/analytics");
+  });
+
+  it("asks only for today, from local midnight", async () => {
+    renderWithProviders(<DashboardPage />);
+    await screen.findByText("Today");
+
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    expect(analyticsMock.summary).toHaveBeenCalledWith({ since: midnight });
+  });
+
+  it("leaves the Today card out, rather than showing an error of its own, if the summary cannot be loaded", async () => {
+    analyticsMock.summary.mockRejectedValue(new Error("boom"));
+
+    renderWithProviders(<DashboardPage />);
+
+    expect(await screen.findAllByText("Online")).toHaveLength(2); // the dashboard itself is fine
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
+    expect(screen.queryByText("boom")).not.toBeInTheDocument();
   });
 });

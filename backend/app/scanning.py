@@ -162,26 +162,42 @@ class ReadRegistry:
         self,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        on_new_sighting: Optional[Callable[[str, str, str], None]] = None,
     ):
         self._clock = clock
         self._wall_clock = wall_clock
+        # Called (kind, value, detail) once per new sighting — the first time a value is
+        # seen, or again after the sighting gap — never once per frame. This is where a
+        # read becomes a stored event.
+        self._on_new_sighting = on_new_sighting
         self._lock = threading.Lock()
         self._entries: dict[tuple[str, str], ReadEntry] = {}
 
-    def record(self, kind: str, value: str, detail: str, points: Points) -> None:
+    def record(self, kind: str, value: str, detail: str, points: Points) -> bool:
+        """Returns whether this was a new sighting (see `on_new_sighting`)."""
         now, wall = self._clock(), self._wall_clock()
+        new_sighting = False
         with self._lock:
             entry = self._entries.get((kind, value))
             if entry is None:
                 self._entries[(kind, value)] = ReadEntry(kind, value, detail, wall, wall, 1, points, now)
                 self._evict_oldest_beyond_cap()
-                return
-            if now - entry.last_seen_monotonic > SIGHTING_GAP_SECONDS:
-                entry.sightings += 1
-            entry.last_seen_at = wall
-            entry.last_seen_monotonic = now
-            entry.detail = detail
-            entry.points = points
+                new_sighting = True
+            else:
+                if now - entry.last_seen_monotonic > SIGHTING_GAP_SECONDS:
+                    entry.sightings += 1
+                    new_sighting = True
+                entry.last_seen_at = wall
+                entry.last_seen_monotonic = now
+                entry.detail = detail
+                entry.points = points
+        # Outside the lock: the callback may do slow or re-entrant work.
+        if new_sighting and self._on_new_sighting is not None:
+            try:
+                self._on_new_sighting(kind, value, detail)
+            except Exception:
+                logger.exception("on_new_sighting callback failed")
+        return new_sighting
 
     def _evict_oldest_beyond_cap(self) -> None:
         while len(self._entries) > MAX_READS:

@@ -22,6 +22,21 @@ from ultralytics import YOLO
 
 from app.camera_testing import build_stream_url
 from app.counting import LineConfig, Point, ResolvedLine, classify_crossing
+from app.events import (
+    LINE_CROSSED,
+    READ,
+    TRACKING_ERROR,
+    TRACKING_RECONNECTING,
+    TRACKING_RESUMED,
+    TRACKING_STARTED,
+    TRACKING_STOPPED,
+    ZONE_ENTERED,
+    ZONE_EXITED,
+    EventRecorder,
+    HeatDelta,
+    NewEvent,
+    hour_start,
+)
 from app.heatmap import HeatmapAccumulator
 from app.modules import (
     DEFAULT_MODULES,
@@ -49,6 +64,13 @@ OPEN_TIMEOUT_MS = 5000
 READ_TIMEOUT_MS = 5000
 RECONNECT_INTERVAL_SECONDS = 5.0
 MAX_RECONNECT_ATTEMPTS = 12  # ~60s total, matching the plan's confirmed reconnect policy
+
+# A person who stops being tracked keeps their zone membership for this many frames (~5 s at
+# the target rate) before they count as having left, so brief occlusion or an ID flicker
+# doesn't produce a fresh "entered" when they reappear.
+ZONE_LOST_GRACE_FRAMES = 25
+# How often the accumulated heat is handed to the recorder (also on the hour change and stop).
+HEAT_FLUSH_INTERVAL_SECONDS = 300.0
 
 BOX_COLOR = (0, 200, 0)
 LINE_COLOR = (255, 165, 0)
@@ -215,9 +237,13 @@ class TrackingSession:
         lines: Optional[list[LineConfig]] = None,
         zones: Optional[list[ZoneConfig]] = None,
         modules: Optional[Iterable[str]] = None,
+        recorder: Optional[EventRecorder] = None,
     ):
         self.camera_id = camera_id
         self._stream_url = build_stream_url(rtsp_url, username, password)
+        # Where events and heat are persisted. None (the default) persists nothing, so a
+        # session built without one, like every test written before events existed, is inert.
+        self._recorder = recorder
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
 
@@ -254,12 +280,20 @@ class TrackingSession:
         self._zone_configs: list[ZoneConfig] = zones or []
         self._resolved_zones: Optional[list[ResolvedZone]] = None
         self._zone_counts: dict[uuid.UUID, int] = {zc.id: 0 for zc in self._zone_configs}
+        # track id -> (zones that person is inside, the frame number they were last seen).
+        self._zone_membership: dict[int, tuple[frozenset, int]] = {}
+        self._zone_frame = 0
 
         self._heatmap: Optional[HeatmapAccumulator] = None
+        # Injectable so the hand-off triggers are testable without waiting five minutes.
+        self._now = lambda: datetime.now(timezone.utc)
+        self._monotonic = time.monotonic
+        self._heat_period: Optional[datetime] = None  # the UTC hour the next delta belongs to
+        self._last_heat_flush = 0.0
 
         # The reading modules. QR/barcode decoding is cheap and runs inline on each frame;
         # OCR gets its own worker thread (see app/scanning.py for why).
-        self._reads = ReadRegistry()
+        self._reads = ReadRegistry(on_new_sighting=self._on_new_read)
         self._code_scanner: Optional[CodeScanner] = CodeScanner(self._modules)
         if not self._code_scanner.enabled:
             self._code_scanner = None
@@ -321,6 +355,45 @@ class TrackingSession:
         ok, encoded = cv2.imencode(".jpg", accumulator.render(frame))
         return encoded.tobytes() if ok else jpeg
 
+    def _emit(self, event_type: str, **fields) -> None:
+        if self._recorder is not None:
+            self._recorder.record(NewEvent(camera_id=self.camera_id, event_type=event_type, **fields))
+
+    def _on_new_read(self, kind: str, value: str, detail: str) -> None:
+        # Once per new sighting (see ReadRegistry), never once per frame a code stays in view.
+        self._emit(READ, category=kind, value=value, detail=detail)
+
+    def _flush_heat(self, force: bool = False) -> None:
+        """Hands the heat accumulated since the last hand-off to the recorder, when the UTC
+        hour has changed (attributed to the hour just ended), every few minutes, or on
+        `force` (stopping)."""
+        heatmap = self._heatmap
+        if self._recorder is None or heatmap is None:
+            return
+        period = hour_start(self._now())
+        if self._heat_period is None:
+            self._heat_period = period
+        hour_changed = period != self._heat_period
+        due = force or hour_changed or self._monotonic() - self._last_heat_flush >= HEAT_FLUSH_INTERVAL_SECONDS
+        if not due:
+            return
+
+        taken = heatmap.take_delta()
+        if taken is not None:
+            grid, samples = taken
+            self._recorder.record(
+                HeatDelta(
+                    camera_id=self.camera_id,
+                    period_start=self._heat_period,
+                    frame_width=heatmap.frame_width,
+                    frame_height=heatmap.frame_height,
+                    grid=grid,
+                    samples=samples,
+                )
+            )
+        self._heat_period = period
+        self._last_heat_flush = self._monotonic()
+
     def _set_status(self, status: str, error: Optional[str] = None) -> None:
         with self._lock:
             self._status = status
@@ -343,6 +416,9 @@ class TrackingSession:
                     if direction is not None:
                         with self._lock:
                             self._line_counts[rl.id][key_prefix + direction] += 1
+                        self._emit(
+                            LINE_CROSSED, category=group, direction=direction, subject_id=rl.id, subject_name=rl.name
+                        )
         self._previous_positions[group] = track_points
 
     def _update_zones(self, track_points: dict) -> None:
@@ -351,12 +427,43 @@ class TrackingSession:
         testable with synthetic positions, like `_update_counts`."""
         if not self._resolved_zones:
             return
-        counts = {
-            rz.id: sum(1 for point in track_points.values() if point_in_polygon(point, rz.polygon))
-            for rz in self._resolved_zones
+        inside_by_track = {
+            track_id: frozenset(rz.id for rz in self._resolved_zones if point_in_polygon(point, rz.polygon))
+            for track_id, point in track_points.items()
         }
+        counts = {rz.id: sum(1 for zones in inside_by_track.values() if rz.id in zones) for rz in self._resolved_zones}
         with self._lock:
             self._zone_counts = counts
+        self._emit_zone_events(inside_by_track)
+
+    def _emit_zone_events(self, inside_by_track: dict) -> None:
+        """Entered/exited events from each person's change of zone membership. Someone who
+        stops being tracked while inside keeps their membership for ZONE_LOST_GRACE_FRAMES
+        frames (they may just be occluded); if they don't return in time, an exit is
+        recorded, because the track was lost. Counted in frames, not seconds, so it is
+        testable without a clock."""
+        self._zone_frame += 1
+        names = {rz.id: rz.name for rz in self._resolved_zones or []}
+
+        def emit(event_type: str, zone_id: uuid.UUID) -> None:
+            self._emit(event_type, category="person", subject_id=zone_id, subject_name=names.get(zone_id))
+
+        for track_id, inside in inside_by_track.items():
+            previous = self._zone_membership.get(track_id, (frozenset(), 0))[0]
+            for zone_id in inside - previous:
+                emit(ZONE_ENTERED, zone_id)
+            for zone_id in previous - inside:
+                emit(ZONE_EXITED, zone_id)
+            self._zone_membership[track_id] = (inside, self._zone_frame)
+
+        lost = [
+            track_id
+            for track_id, (_zones, seen) in self._zone_membership.items()
+            if self._zone_frame - seen > ZONE_LOST_GRACE_FRAMES
+        ]
+        for track_id in lost:
+            for zone_id in self._zone_membership.pop(track_id)[0]:
+                emit(ZONE_EXITED, zone_id)
 
     def _scan_frame(self, frame: np.ndarray) -> None:
         """Feeds the reading modules. Must be given the *raw* frame, before anything is
@@ -393,6 +500,7 @@ class TrackingSession:
         """Returns a freshly opened capture, or None if stopped/gave up."""
         attempt = 0
         self._set_status("reconnecting")
+        self._emit(TRACKING_RECONNECTING)
         while not self._stop_event.is_set():
             if should_give_up(attempt):
                 self._set_status("error", "Camera unreachable after repeated reconnect attempts")
@@ -402,6 +510,7 @@ class TrackingSession:
             attempt += 1
             cap = _open_capture(self._stream_url)
             if cap is not None:
+                self._emit(TRACKING_RESUMED)
                 return cap
         return None
 
@@ -411,9 +520,12 @@ class TrackingSession:
         model = YOLO(MODEL_WEIGHTS) if self._class_ids else None
         cap = _open_capture(self._stream_url)
         if cap is None:
-            self._set_status("error", "Could not open stream (unreachable, refused, or unsupported)")
+            message = "Could not open stream (unreachable, refused, or unsupported)"
+            self._set_status("error", message)
+            self._emit(TRACKING_ERROR, value=message)
             return
         self._set_status("running")
+        self._emit(TRACKING_STARTED)
         if self._ocr_worker is not None:
             self._ocr_worker.start()
 
@@ -435,6 +547,10 @@ class TrackingSession:
                     self._resolved_zones = [zc.to_pixels(width, height) for zc in self._zone_configs]
                     with self._lock:
                         self._heatmap = HeatmapAccumulator(width, height)
+
+                # Before this frame's points are added, so an hour change attributes the
+                # heat to the hour it was actually collected in.
+                self._flush_heat()
 
                 result = None
                 person_points: dict[int, Point] = {}
@@ -476,9 +592,15 @@ class TrackingSession:
             # up (already released its last attempt) and when stop() interrupts a wait.
             if cap is not None:
                 cap.release()
+            self._flush_heat(force=True)
             with self._lock:
                 if self._status != "error":
                     self._status = "stopped"
+                final_status, final_error = self._status, self._error
+            if final_status == "error":
+                self._emit(TRACKING_ERROR, value=final_error)
+            else:
+                self._emit(TRACKING_STOPPED)
 
 
 class TrackingManager:
@@ -495,12 +617,13 @@ class TrackingManager:
         lines: Optional[list[LineConfig]] = None,
         zones: Optional[list[ZoneConfig]] = None,
         modules: Optional[Iterable[str]] = None,
+        recorder: Optional[EventRecorder] = None,
     ) -> TrackingSession:
         with self._lock:
             existing = self._sessions.get(camera_id)
             if existing is not None and existing.snapshot().status in ("starting", "running", "reconnecting"):
                 return existing
-            session = TrackingSession(camera_id, rtsp_url, username, password, lines, zones, modules)
+            session = TrackingSession(camera_id, rtsp_url, username, password, lines, zones, modules, recorder)
             self._sessions[camera_id] = session
         session.start()
         return session

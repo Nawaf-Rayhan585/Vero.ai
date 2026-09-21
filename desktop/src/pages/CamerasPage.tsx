@@ -193,7 +193,11 @@ function CameraRow({ camera }: { camera: Camera }) {
           <Button onClick={() => setEditing(true)}>Edit</Button>
           <Button
             onClick={() => {
-              if (window.confirm(`Delete camera "${camera.name}"? This cannot be undone.`)) {
+              if (
+                window.confirm(
+                  `Delete camera "${camera.name}"? Its lines, zones, events and analytics history are deleted with it. This cannot be undone.`,
+                )
+              ) {
                 deleteCamera.mutate(camera.id);
               }
             }}

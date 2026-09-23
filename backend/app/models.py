@@ -77,6 +77,26 @@ class Location(Base):
     )
 
 
+class Device(Base):
+    """A physical machine an organization says it runs Vero.ai on (Phase 12's device
+    entitlement — app/device_schemas.py, routers/devices.py). Deliberately just a record:
+    a name someone typed, not a hardware fingerprint, and nothing checks that a request
+    actually originates from a registered device. `Subscription.max_devices` is the
+    entitlement limit (None = unlimited, and always None today)."""
+
+    __tablename__ = "devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
 class Subscription(Base):
     """One row per organization (app/subscription_schemas.py, routers/subscription.py):
     the trial/subscription state Phase 11 introduces. `status` is "trialing", "active",
@@ -99,6 +119,9 @@ class Subscription(Base):
     # The entitlement mechanism (Phase 11's "licensing architecture"): None means
     # unlimited. Enforced by routers/cameras.py's create_camera; never set in this phase.
     max_cameras: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Same shape, for devices (Phase 12): enforced by routers/devices.py's create_device;
+    # never set on any real organization either.
+    max_devices: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Set when the Owner-only manual override (routers/subscription.py) activates the
     # subscription — a stand-in for real billing until Phase 15 ships PayPal.
     activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

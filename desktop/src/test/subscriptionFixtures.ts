@@ -14,6 +14,7 @@ export function makeSubscription(overrides: Partial<Subscription> = {}): Subscri
     trial_started_at: "2026-01-01T00:00:00Z",
     trial_ends_at: "2026-01-04T00:00:00Z",
     max_cameras: null,
+    max_devices: null,
     activated_at: "2026-01-01T00:00:00Z",
     is_active: true,
     ...overrides,

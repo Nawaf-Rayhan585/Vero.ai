@@ -1,16 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { makeAuthValue } from "../test/authFixtures";
 import { makeSubscription } from "../test/subscriptionFixtures";
 import { subscriptionApi } from "../api/subscription";
+import { devicesApi } from "../api/devices";
 import { SubscriptionPage } from "./SubscriptionPage";
+import type { Device } from "../api/types";
 
 vi.mock("../api/subscription");
+vi.mock("../api/devices");
 const subscriptionMock = vi.mocked(subscriptionApi);
+const devicesMock = vi.mocked(devicesApi);
+
+function makeDevice(overrides: Partial<Device> = {}): Device {
+  return {
+    id: "device-1",
+    organization_id: "22222222-2222-2222-2222-222222222222",
+    name: "Warehouse PC",
+    notes: null,
+    created_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 describe("SubscriptionPage", () => {
+  beforeEach(() => {
+    devicesMock.list.mockResolvedValue([]);
+  });
+
   afterEach(() => {
     vi.resetAllMocks();
   });
@@ -98,5 +117,71 @@ describe("SubscriptionPage", () => {
     const [payload] = subscriptionMock.update.mock.calls[0];
     expect(payload.status).toBe("trialing");
     expect(new Date(payload.trial_ends_at as string).getTime()).toBeGreaterThan(new Date(trialEnd).getTime());
+  });
+
+  describe("Devices", () => {
+    it("lists registered devices with their notes", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription());
+      devicesMock.list.mockResolvedValue([makeDevice({ name: "Warehouse PC", notes: "Dell OptiPlex" })]);
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      expect(await screen.findByText("Warehouse PC")).toBeInTheDocument();
+      expect(screen.getByText(/Dell OptiPlex/)).toBeInTheDocument();
+    });
+
+    it("shows an empty state when there are no devices", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription());
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      expect(await screen.findByText("No devices registered")).toBeInTheDocument();
+    });
+
+    it("an Owner/Admin can add a device", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription());
+      devicesMock.create.mockResolvedValue(makeDevice());
+      const user = userEvent.setup();
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue({ currentRole: "admin" }) });
+
+      await user.click(await screen.findByRole("button", { name: "Add device" }));
+      await user.type(screen.getByLabelText("Device name"), "Warehouse PC");
+      await user.click(screen.getByRole("button", { name: "Add" }));
+
+      expect(devicesMock.create).toHaveBeenCalledWith({ name: "Warehouse PC" });
+    });
+
+    it("a Member sees devices read-only: no Add, Rename, or Remove", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription());
+      devicesMock.list.mockResolvedValue([makeDevice()]);
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue({ currentRole: "member" }) });
+
+      await screen.findByText("Warehouse PC");
+      expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    });
+
+    it("removing a device still works once the trial has ended, but Add/Rename hide", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription({ status: "expired", is_active: false }));
+      devicesMock.list.mockResolvedValue([makeDevice()]);
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await screen.findByText("Warehouse PC");
+      expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+    });
+
+    it("removes a device after confirmation", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription());
+      devicesMock.list.mockResolvedValue([makeDevice()]);
+      devicesMock.remove.mockResolvedValue(undefined);
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const user = userEvent.setup();
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+      expect(devicesMock.remove).toHaveBeenCalledWith("device-1");
+    });
   });
 });

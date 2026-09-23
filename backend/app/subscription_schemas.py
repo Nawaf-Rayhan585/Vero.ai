@@ -1,4 +1,4 @@
-"""Request/response models for the subscription/licensing architecture (Phase 11)."""
+"""Request/response models for the subscription/licensing architecture (Phase 11-12)."""
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -31,6 +31,9 @@ class SubscriptionRead(BaseModel):
     trial_started_at: datetime
     trial_ends_at: datetime
     max_cameras: Optional[int]
+    # Same shape as max_cameras, for devices (Phase 12): never set on any real
+    # organization either — Phase 14 still owns real entitlement numbers.
+    max_devices: Optional[int]
     activated_at: Optional[datetime]
 
     @computed_field

@@ -346,6 +346,8 @@ export interface Subscription {
   /** The entitlement mechanism (Phase 11's "licensing architecture"). null = unlimited —
    * true for every organization today, since Phase 14 hasn't decided real numbers yet. */
   max_cameras: number | null;
+  /** Same shape, for devices (Phase 12). Also always null today. */
+  max_devices: number | null;
   activated_at: string | null;
   /** True for "active", or "trialing" with trial_ends_at still in the future — computed
    * server-side so this never has to be re-derived here. */
@@ -358,3 +360,23 @@ export interface SubscriptionUpdateRequest {
   plan_type?: PlanType | null;
   trial_ends_at?: string;
 }
+
+// -- Device entitlement (Phase 12) --------------------------------------------------------
+
+/** A physical machine an organization says it runs Vero.ai on. Deliberately just a record —
+ * a name someone typed, not a hardware fingerprint; nothing checks that a request actually
+ * originates from a registered device. */
+export interface Device {
+  id: string;
+  organization_id: string;
+  name: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface DeviceCreateRequest {
+  name: string;
+  notes?: string | null;
+}
+
+export type DeviceUpdateRequest = Partial<DeviceCreateRequest>;

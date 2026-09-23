@@ -16,6 +16,7 @@ from app.routers import (
     analytics,
     auth,
     cameras,
+    devices,
     events,
     jobs,
     lines,
@@ -33,6 +34,7 @@ ROUTERS = [
     locations.router,
     members.router,
     subscription.router,
+    devices.router,
     jobs.router,
     cameras.router,
     tracking.router,
@@ -107,12 +109,13 @@ def scenario(client, register_user, panning_video):
     ).json()
     location = client.get("/locations").json()[0]
     job = client.post("/jobs", json={"video_source": video_path, "model_type": "yolo"}).json()
+    device = client.post("/devices", json={"name": "Store PC"}).json()
 
     other = register_user("other-org-owner@example.com", organization_name="Other Org")
 
     from types import SimpleNamespace
 
-    return SimpleNamespace(camera=camera, line=line, zone=zone, location=location, job=job, other=other)
+    return SimpleNamespace(camera=camera, line=line, zone=zone, location=location, job=job, device=device, other=other)
 
 
 class TestTenantIsolation:
@@ -217,3 +220,10 @@ class TestTenantIsolation:
         other_subscription = scenario.other.get("/subscription").json()
         assert other_subscription["status"] == "trialing"
         assert other_subscription["is_active"] is True
+
+    def test_another_organizations_device_is_invisible_and_unusable(self, scenario):
+        # There is no GET /devices/{id} (like locations, only list/create/update/delete
+        # exist), so unlike the camera checks above this doesn't include a single-GET.
+        assert scenario.other.patch(f"/devices/{scenario.device['id']}", json={"name": "Hijacked"}).status_code == 404
+        assert scenario.other.delete(f"/devices/{scenario.device['id']}").status_code == 404
+        assert scenario.device["id"] not in [d["id"] for d in scenario.other.get("/devices").json()]

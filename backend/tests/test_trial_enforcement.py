@@ -19,6 +19,7 @@ def expired_scenario(client, register_user, add_member, panning_video):
         json={"name": "Floor", "points": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 1, "y": 1}, {"x": 0, "y": 1}]},
     ).json()
     location = client.post("/locations", json={"name": "Warehouse"}).json()
+    device = client.post("/devices", json={"name": "Warehouse PC"}).json()
     member_client = register_user("member@example.com")
     member = add_member(client, member_client, role="member")
 
@@ -26,7 +27,7 @@ def expired_scenario(client, register_user, add_member, panning_video):
 
     from types import SimpleNamespace
 
-    return SimpleNamespace(camera=camera, line=line, zone=zone, location=location, member=member)
+    return SimpleNamespace(camera=camera, line=line, zone=zone, location=location, device=device, member=member)
 
 
 class TestGrowthActionsAreBlocked:
@@ -70,6 +71,13 @@ class TestGrowthActionsAreBlocked:
 
     def test_starting_tracking_is_blocked(self, client, expired_scenario):
         response = client.post(f"/cameras/{expired_scenario.camera['id']}/tracking/start")
+        assert response.status_code == 402
+
+    def test_registering_a_device_is_blocked(self, client, expired_scenario):
+        assert client.post("/devices", json={"name": "New PC"}).status_code == 402
+
+    def test_renaming_a_device_is_blocked(self, client, expired_scenario):
+        response = client.patch(f"/devices/{expired_scenario.device['id']}", json={"name": "Renamed"})
         assert response.status_code == 402
 
     def test_the_error_message_points_at_the_subscription_page(self, client, expired_scenario):
@@ -123,6 +131,9 @@ class TestShrinkActionsStayAllowed:
         response = client.post(f"/cameras/{expired_scenario.camera['id']}/test-connection")
         assert response.status_code == 200
 
+    def test_deleting_a_device_still_works(self, client, expired_scenario):
+        assert client.delete(f"/devices/{expired_scenario.device['id']}").status_code == 204
+
 
 class TestReadsStayUnaffected:
     def test_listing_cameras_still_works(self, client, expired_scenario):
@@ -137,6 +148,9 @@ class TestReadsStayUnaffected:
 
     def test_listing_locations_still_works(self, client, expired_scenario):
         assert client.get("/locations").status_code == 200
+
+    def test_listing_devices_still_works(self, client, expired_scenario):
+        assert client.get("/devices").status_code == 200
 
     def test_listing_members_still_works(self, client, expired_scenario):
         assert client.get("/members").status_code == 200

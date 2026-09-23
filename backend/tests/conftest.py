@@ -66,7 +66,7 @@ def clean_tables(test_database):
         conn.execute(
             text(
                 "TRUNCATE TABLE jobs, cameras, lines, zones, events, heatmap_snapshots, "
-                "refresh_tokens, memberships, locations, subscriptions, organizations, users"
+                "refresh_tokens, memberships, locations, devices, subscriptions, organizations, users"
             )
         )
 

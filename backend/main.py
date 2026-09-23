@@ -13,6 +13,7 @@ from app.routers import (
     analytics,
     auth,
     cameras,
+    devices,
     events,
     jobs,
     lines,
@@ -57,6 +58,7 @@ app.include_router(organizations.router)
 app.include_router(locations.router)
 app.include_router(members.router)
 app.include_router(subscription.router)
+app.include_router(devices.router)
 app.include_router(jobs.router)
 app.include_router(cameras.router)
 app.include_router(tracking.router)

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,13 @@ class Settings(BaseSettings):
     # V1-SCOPE.md: "3-day free trial (enforced server-side)". Not a secret, so a plain
     # default rather than a required .env value.
     trial_days: int = 3
+    # Phase 13: where cloud-engine listens, and the shared secret it checks requests
+    # against (app/cloud_routing.py). Both optional — most dev/test setups never touch
+    # Vero Cloud, so they shouldn't need to configure it just to run the app or the suite.
+    # A camera on a "vero_cloud" organization gets a clear 503 if either is unset, rather
+    # than silently running locally.
+    cloud_engine_base_url: Optional[str] = None
+    cloud_engine_internal_secret: Optional[str] = None
 
     @field_validator("auth_secret_key")
     @classmethod

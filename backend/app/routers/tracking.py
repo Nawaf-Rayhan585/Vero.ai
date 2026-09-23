@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
+from app.cloud_routing import is_cloud_organization, proxy_to_cloud_engine, relay_bytes, relay_json
 from app.counting import LineConfig, Point
 from app.database import get_db
 from app.events import event_recorder
@@ -28,6 +29,10 @@ def start_tracking(
     camera_id: str, ctx: OrgContext = Depends(require_active_configurator), db: Session = Depends(get_db)
 ):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine("POST", f"/cameras/{camera.id}/tracking/start")
+        return relay_json(response)
+
     username, password = _decrypted_credentials(camera)
     rows = db.scalars(select(Line).where(Line.camera_id == camera.id)).all()
     lines = [LineConfig(id=row.id, name=row.name, x1=row.x1, y1=row.y1, x2=row.x2, y2=row.y2) for row in rows]
@@ -50,6 +55,10 @@ def start_tracking(
 @router.post("/{camera_id}/tracking/stop", response_model=TrackingStatusRead)
 def stop_tracking(camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine("POST", f"/cameras/{camera.id}/tracking/stop")
+        return relay_json(response)
+
     tracking_manager.stop(camera.id)
     return _STOPPED_SNAPSHOT
 
@@ -57,6 +66,10 @@ def stop_tracking(camera_id: str, ctx: OrgContext = Depends(require_configurator
 @router.get("/{camera_id}/tracking/status", response_model=TrackingStatusRead)
 def get_tracking_status(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine("GET", f"/cameras/{camera.id}/tracking/status")
+        return relay_json(response)
+
     session = tracking_manager.get(camera.id)
     if session is None:
         return _STOPPED_SNAPSHOT
@@ -68,6 +81,12 @@ def get_latest_tracking_frame(
     camera_id: str, heatmap: bool = False, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)
 ):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine(
+            "GET", f"/cameras/{camera.id}/tracking/latest-frame", params={"heatmap": heatmap}
+        )
+        return relay_bytes(response)
+
     session = tracking_manager.get(camera.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Tracking has not been started for this camera")

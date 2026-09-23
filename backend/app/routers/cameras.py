@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import camera_testing
 from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
+from app.cloud_routing import is_cloud_organization, proxy_to_cloud_engine, relay_bytes, relay_json
 from app.crypto import decrypt_password, encrypt_password
 from app.database import get_db
 from app.models import Camera, Location
@@ -155,6 +156,10 @@ def test_camera_connection(
     camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
 ):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine("POST", f"/cameras/{camera.id}/test-connection")
+        return relay_json(response)
+
     username, password = _decrypted_credentials(camera)
     outcome = camera_testing.test_connection(camera.rtsp_url, username, password)
 
@@ -171,6 +176,10 @@ def test_camera_connection(
 @router.get("/{camera_id}/snapshot")
 def get_camera_snapshot(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
     camera = _get_camera_or_404(db, ctx, camera_id)
+    if is_cloud_organization(ctx):
+        response = proxy_to_cloud_engine("GET", f"/cameras/{camera.id}/snapshot")
+        return relay_bytes(response)
+
     username, password = _decrypted_credentials(camera)
     result = camera_testing.grab_snapshot(camera.rtsp_url, username, password)
 

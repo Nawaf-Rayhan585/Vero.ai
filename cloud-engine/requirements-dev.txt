@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1
+# Not needed at runtime (cloud-engine never runs migrations of its own — see main.py's
+# docstring), only by tests/conftest.py to apply backend's migrations to the shared test
+# database, the same way backend/tests/conftest.py does.
+alembic==1.20.0

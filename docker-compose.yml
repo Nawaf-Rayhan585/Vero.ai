@@ -1,5 +1,11 @@
-# Local development PostgreSQL only. Production database is a later-phase decision.
+# Local development PostgreSQL by default. Production database is a later-phase decision.
 # Credentials come from the repo-root .env (copy .env.example to .env).
+#
+# cloud-engine (Phase 13, Vero Cloud's AI engine) is behind the "cloud" profile, so it
+# never starts with the default `docker compose up -d postgres` every other phase's
+# instructions use — bring it up explicitly with `docker compose --profile cloud up -d`.
+# It has not been build-verified (see docs/ROADMAP.md); local verification runs it
+# directly via a venv, like backend/ and ai-engine/.
 services:
   postgres:
     image: postgres:16
@@ -18,6 +24,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  cloud-engine:
+    build:
+      context: .
+      dockerfile: cloud-engine/Dockerfile
+    container_name: vero-cloud-engine
+    restart: unless-stopped
+    profiles: ["cloud"]
+    environment:
+      # Not the host-facing DATABASE_URL in .env (127.0.0.1:5433, only reachable from the
+      # host) — from inside this container, postgres is reachable by its service name on
+      # its own internal port.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+      CAMERA_CREDENTIALS_KEY: ${CAMERA_CREDENTIALS_KEY:?set CAMERA_CREDENTIALS_KEY in .env}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?set AUTH_SECRET_KEY in .env}
+      CLOUD_ENGINE_INTERNAL_SECRET: ${CLOUD_ENGINE_INTERNAL_SECRET:?set CLOUD_ENGINE_INTERNAL_SECRET in .env}
+    ports:
+      - "127.0.0.1:${CLOUD_ENGINE_PORT:-8002}:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   vero_pgdata:

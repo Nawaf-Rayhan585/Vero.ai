@@ -1,0 +1,26 @@
+# Mirrors backend/requirements.txt's non-auth subset: cloud-engine imports backend/app/*
+# directly (main.py's sys.path trick), so every package those shared modules need at
+# import/runtime must be installed here too, at the exact same pinned versions. None of
+# backend's auth-only packages (argon2-cffi, PyJWT, email-validator, dnspython) or
+# alembic (cloud-engine never runs migrations of its own — see requirements-dev.txt for
+# what its tests need) belong here.
+fastapi==0.141.1
+uvicorn==0.52.4
+ultralytics==8.3.203
+opencv-python==4.10.0.84
+sqlalchemy==2.0.54
+psycopg[binary]==3.3.6
+pydantic-settings==2.15.0
+cryptography==50.0.1
+lap==0.5.13
+rapidocr==3.9.2
+onnxruntime==1.30.0
+zxing-cpp==3.1.1
+shapely==2.1.2
+pyclipper==1.4.0
+omegaconf==2.3.1
+antlr4-python3-runtime==4.9.3
+colorlog==6.12.0
+tqdm==4.70.1
+flatbuffers==25.12.19
+protobuf==7.36.2

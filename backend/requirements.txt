@@ -35,3 +35,6 @@ argon2-cffi-bindings==26.1.0
 PyJWT==2.14.0
 email-validator==2.3.0
 dnspython==2.8.0
+# Phase 13: backend now makes real outbound calls to cloud-engine (app/cloud_routing.py),
+# not just test-client usage — promoted from requirements-dev.txt to a direct dependency.
+httpx==0.28.1

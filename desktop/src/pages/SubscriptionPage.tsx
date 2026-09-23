@@ -66,7 +66,7 @@ function PlanSection({ subscription, canEdit }: { subscription: Subscription; ca
           <p>{subscription.plan_type ? PLAN_LABEL[subscription.plan_type] : "Not chosen yet"}</p>
         )}
         <span className="auth-hint">
-          Own Hardware and Vero Cloud behave the same today — the plans themselves are built in later phases.
+          Own Hardware runs camera tracking on this device. Vero Cloud runs it on Vero's own infrastructure instead.
         </span>
       </div>
       {updatePlan.isError && <ErrorNotice message={updatePlan.error.message} />}

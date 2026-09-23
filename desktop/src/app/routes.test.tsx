@@ -43,17 +43,7 @@ describe("app routing", () => {
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();
   });
 
-  it("Subscription is still an honest placeholder naming the phases that build it", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<TestApp />);
-
-    await user.click(screen.getByRole("link", { name: "Subscription" }));
-
-    expect(screen.getByRole("heading", { name: "Subscription" })).toBeInTheDocument();
-    expect(screen.getByText(/Phase 11/)).toBeInTheDocument();
-  });
-
-  it("Events and Analytics are real pages now, not placeholders", async () => {
+  it("Events, Analytics and Subscription are real pages now, not placeholders", async () => {
     const user = userEvent.setup();
     renderWithProviders(<TestApp />);
 
@@ -64,6 +54,11 @@ describe("app routing", () => {
     await user.click(screen.getByRole("link", { name: "Analytics" }));
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.queryByText(/Phase 9/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "Subscription" }));
+    expect(screen.getByRole("heading", { name: "Subscription" })).toBeInTheDocument();
+    expect(screen.queryByText(/Phase 11/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/billing via PayPal/)).not.toBeInTheDocument();
   });
 
   it("renders NotFoundPage for an unknown path", () => {

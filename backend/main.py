@@ -9,7 +9,20 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import engine
 from app.detection_runner import reconcile_interrupted_jobs
 from app.events import close_dangling_sessions, event_recorder
-from app.routers import analytics, auth, cameras, events, jobs, lines, locations, members, organizations, tracking, zones
+from app.routers import (
+    analytics,
+    auth,
+    cameras,
+    events,
+    jobs,
+    lines,
+    locations,
+    members,
+    organizations,
+    subscription,
+    tracking,
+    zones,
+)
 from app.tracking import tracking_manager
 
 logger = logging.getLogger(__name__)
@@ -43,6 +56,7 @@ app.include_router(auth.router)
 app.include_router(organizations.router)
 app.include_router(locations.router)
 app.include_router(members.router)
+app.include_router(subscription.router)
 app.include_router(jobs.router)
 app.include_router(cameras.router)
 app.include_router(tracking.router)

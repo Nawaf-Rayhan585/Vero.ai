@@ -3,15 +3,19 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { makeAuthValue } from "../test/authFixtures";
+import { makeSubscription } from "../test/subscriptionFixtures";
 import { camerasApi } from "../api/cameras";
 import { locationsApi } from "../api/locations";
+import { subscriptionApi } from "../api/subscription";
 import { CamerasPage } from "./CamerasPage";
 import type { Camera, Location } from "../api/types";
 
 vi.mock("../api/cameras");
 vi.mock("../api/locations");
+vi.mock("../api/subscription");
 const camerasMock = vi.mocked(camerasApi);
 const locationsMock = vi.mocked(locationsApi);
+const subscriptionMock = vi.mocked(subscriptionApi);
 
 const WAREHOUSE: Location = {
   id: "loc-1",
@@ -49,6 +53,7 @@ describe("CamerasPage", () => {
   beforeEach(() => {
     camerasMock.list.mockResolvedValue([]);
     locationsMock.list.mockResolvedValue([WAREHOUSE]);
+    subscriptionMock.get.mockResolvedValue(makeSubscription());
   });
 
   afterEach(() => {
@@ -207,5 +212,18 @@ describe("CamerasPage", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Test connection" })).not.toBeInTheDocument();
+  });
+
+  it("hides Add camera and Edit (but not Delete/Test connection) once the trial has ended, for an Owner", async () => {
+    camerasMock.list.mockResolvedValue([makeCamera()]);
+    subscriptionMock.get.mockResolvedValue(makeSubscription({ status: "expired", is_active: false }));
+    renderWithProviders(<CamerasPage />);
+
+    await screen.findByText("Front door");
+    expect(screen.queryByRole("button", { name: "Add camera" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    // Deleting and testing a connection are never blocked by trial/subscription status.
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test connection" })).toBeInTheDocument();
   });
 });

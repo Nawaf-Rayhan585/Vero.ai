@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     auth_secret_key: str
     access_token_ttl_seconds: int = 15 * 60
     refresh_token_ttl_seconds: int = 30 * 24 * 60 * 60
+    # V1-SCOPE.md: "3-day free trial (enforced server-side)". Not a secret, so a plain
+    # default rather than a required .env value.
+    trial_days: int = 3
 
     @field_validator("auth_secret_key")
     @classmethod

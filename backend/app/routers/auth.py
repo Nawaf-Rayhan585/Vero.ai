@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import OWNER, adopt_orphans, get_current_user
+from app.auth import OWNER, adopt_orphans, get_current_user, new_trial_subscription
 from app.auth_schemas import (
     ChangePasswordRequest,
     LoginRequest,
@@ -87,6 +87,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     db.flush()
     db.add(Membership(user_id=user.id, organization_id=organization.id, role=OWNER))
     db.add(Location(organization_id=organization.id, name="Main location"))
+    db.add(new_trial_subscription(organization.id))
     db.flush()
 
     if is_first_user:

@@ -3,11 +3,11 @@ from datetime import datetime, timezone
 
 import cv2
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import camera_testing
-from app.auth import OrgContext, get_org_context, require_configurator
+from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
 from app.crypto import decrypt_password, encrypt_password
 from app.database import get_db
 from app.models import Camera, Location
@@ -56,10 +56,27 @@ def _default_location(db: Session, ctx: OrgContext) -> Location:
     return location
 
 
+def _check_camera_limit(db: Session, ctx: OrgContext) -> None:
+    """The entitlement mechanism Phase 11 builds (docs/ROADMAP.md): `max_cameras` is None
+    (unlimited) for every real organization today, since Phase 14 hasn't decided real
+    numbers yet — this only actually blocks anything in a test that sets it directly."""
+    sub = ctx.organization.subscription
+    if sub is None or sub.max_cameras is None:
+        return
+    count = db.scalar(
+        select(func.count()).select_from(Camera).join(Location).where(Location.organization_id == ctx.organization.id)
+    )
+    if count >= sub.max_cameras:
+        raise HTTPException(
+            status_code=402, detail=f"Your plan allows up to {sub.max_cameras} camera(s). Upgrade to add more."
+        )
+
+
 @router.post("", response_model=CameraRead)
 def create_camera(
-    request: CameraCreate, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+    request: CameraCreate, ctx: OrgContext = Depends(require_active_configurator), db: Session = Depends(get_db)
 ):
+    _check_camera_limit(db, ctx)
     location = (
         _get_location_or_404(db, ctx, str(request.location_id))
         if request.location_id is not None
@@ -97,7 +114,7 @@ def get_camera(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: S
 def update_camera(
     camera_id: str,
     request: CameraUpdate,
-    ctx: OrgContext = Depends(require_configurator),
+    ctx: OrgContext = Depends(require_active_configurator),
     db: Session = Depends(get_db),
 ):
     camera = _get_camera_or_404(db, ctx, camera_id)

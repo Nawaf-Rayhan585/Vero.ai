@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCameras, useCreateCamera, useDeleteCamera, useUpdateCamera } from "../hooks/useCameras";
 import { useTestCameraConnection } from "../hooks/useCameraTest";
 import { useLocations } from "../hooks/useLocations";
+import { useSubscription } from "../hooks/useSubscription";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, EmptyState, ErrorNotice, Spinner, StatusBadge } from "../components/ui";
 import type { Camera, CameraCreateRequest, ConnectionStatus } from "../api/types";
@@ -155,7 +156,18 @@ function CameraForm({
   );
 }
 
-function CameraRow({ camera, canConfigure }: { camera: Camera; canConfigure: boolean }) {
+function CameraRow({
+  camera,
+  canConfigure,
+  canGrow,
+}: {
+  camera: Camera;
+  /** Test connection and Delete — never blocked by trial/subscription status. */
+  canConfigure: boolean;
+  /** Edit — creates/grows usage on the backend (require_active_configurator), so it's
+   * additionally hidden once the trial has ended with no active subscription. */
+  canGrow: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const updateCamera = useUpdateCamera();
   const deleteCamera = useDeleteCamera();
@@ -209,7 +221,7 @@ function CameraRow({ camera, canConfigure }: { camera: Camera; canConfigure: boo
             <Button onClick={() => testConnection.mutate(camera.id)} disabled={testConnection.isPending}>
               {testConnection.isPending ? "Testing..." : "Test connection"}
             </Button>
-            <Button onClick={() => setEditing(true)}>Edit</Button>
+            {canGrow && <Button onClick={() => setEditing(true)}>Edit</Button>}
             <Button
               onClick={() => {
                 if (
@@ -257,14 +269,19 @@ function CameraRow({ camera, canConfigure }: { camera: Camera; canConfigure: boo
 
 export function CamerasPage() {
   const auth = useAuth();
+  const { data: subscription } = useSubscription();
   const canConfigure = auth.currentRole === "owner" || auth.currentRole === "admin";
+  // Adding/editing a camera creates or grows usage (require_active_configurator on the
+  // backend) — blocked once the trial has ended with no active subscription. Deleting and
+  // testing a connection are not, and stay under canConfigure alone.
+  const canGrow = canConfigure && (subscription?.is_active ?? false);
   const { data: cameras, isLoading, isError, error } = useCameras();
   const createCamera = useCreateCamera();
   const [adding, setAdding] = useState(false);
 
   return (
     <Card title="Cameras">
-      {canConfigure && (
+      {canGrow && (
         <div className="row">
           {!adding && <Button variant="primary" onClick={() => setAdding(true)}>Add camera</Button>}
         </div>
@@ -292,7 +309,7 @@ export function CamerasPage() {
       {cameras && cameras.length > 0 && (
         <ul className="camera-list">
           {cameras.map((camera) => (
-            <CameraRow key={camera.id} camera={camera} canConfigure={canConfigure} />
+            <CameraRow key={camera.id} camera={camera} canConfigure={canConfigure} canGrow={canGrow} />
           ))}
         </ul>
       )}

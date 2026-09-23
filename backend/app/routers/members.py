@@ -4,7 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import CONFIGURING_ROLES, OWNER, OrgContext, get_org_context, is_last_owner, require_configurator
+from app.auth import (
+    CONFIGURING_ROLES,
+    OWNER,
+    OrgContext,
+    get_org_context,
+    is_last_owner,
+    require_active_configurator,
+)
 from app.auth_schemas import MemberAddRequest, MemberRead, MemberRoleUpdate
 from app.database import get_db
 from app.models import Membership, User
@@ -36,7 +43,7 @@ def list_members(ctx: OrgContext = Depends(get_org_context), db: Session = Depen
 
 @router.post("", response_model=MemberRead)
 def add_member(
-    request: MemberAddRequest, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+    request: MemberAddRequest, ctx: OrgContext = Depends(require_active_configurator), db: Session = Depends(get_db)
 ):
     """Adds an existing account by email. There is no invitation email (no email service
     exists yet), so the person must already have registered their own account."""
@@ -73,7 +80,7 @@ def _get_membership_or_404(db: Session, ctx: OrgContext, user_id: str) -> Member
 def update_member_role(
     user_id: str,
     request: MemberRoleUpdate,
-    ctx: OrgContext = Depends(require_configurator),
+    ctx: OrgContext = Depends(require_active_configurator),
     db: Session = Depends(get_db),
 ):
     membership = _get_membership_or_404(db, ctx, user_id)

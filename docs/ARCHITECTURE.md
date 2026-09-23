@@ -50,6 +50,8 @@ Must support: one user across multiple organizations where appropriate, multiple
 
 **Implemented in Phase 10:** `User → Organization → Location → Camera`, Owner/Admin/Member roles, and one user belonging to several organizations — but in *this same local backend and PostgreSQL*, not the separate "Vero.ai Cloud" box in the diagram above, which doesn't exist until Phases 12/13. The auth code (`backend/app/security.py`, `app/auth.py`) is kept in its own modules so it can move without rewriting the rest of the backend. Whether an Own Hardware customer's accounts stay local, move to the cloud, or sync between the two is an open decision for Phases 12/13 (see `ROADMAP.md`'s open items).
 
+**Implemented in Phase 11:** the "different plan limits per organization/plan" requirement above now has a real mechanism — each organization has one `Subscription` row (`status`, `plan_type`, `trial_ends_at`, `max_cameras`), and the enforcement boundary between the Auth/Licensing boxes in the diagram and the rest of the API is `require_active_configurator` (`app/auth.py`), which the *growth* subset of configure endpoints depend on. The diagram's separate "Licensing" cloud box still doesn't exist — like accounts, this lives in the local backend for now — and `plan_type`/`max_cameras` don't yet change any actual behavior, since Phases 12-14 haven't defined what Own Hardware vs. Vero Cloud or real entitlement numbers mean yet.
+
 ## Camera architecture
 
 Per camera: RTSP URL, name, location, credentials, connection testing, connection status, reconnection, per-camera AI module selection, per-camera settings, FPS/resolution handling, live preview where practical. Camera streams are not assumed identical.

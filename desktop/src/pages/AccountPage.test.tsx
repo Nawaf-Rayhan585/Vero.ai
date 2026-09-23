@@ -3,9 +3,11 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { makeAuthValue, TEST_ORGANIZATION, TEST_USER } from "../test/authFixtures";
+import { makeSubscription } from "../test/subscriptionFixtures";
 import { organizationsApi } from "../api/organizations";
 import { locationsApi } from "../api/locations";
 import { membersApi } from "../api/members";
+import { subscriptionApi } from "../api/subscription";
 import { ApiError } from "../api/client";
 import { AccountPage } from "./AccountPage";
 import type { Location, Member } from "../api/types";
@@ -13,10 +15,12 @@ import type { Location, Member } from "../api/types";
 vi.mock("../api/organizations");
 vi.mock("../api/locations");
 vi.mock("../api/members");
+vi.mock("../api/subscription");
 
 const organizationsMock = vi.mocked(organizationsApi);
 const locationsMock = vi.mocked(locationsApi);
 const membersMock = vi.mocked(membersApi);
+const subscriptionMock = vi.mocked(subscriptionApi);
 
 const OTHER_ORG = { id: "org-b", name: "Org B", created_at: "2026-01-01T00:00:00Z" };
 
@@ -47,6 +51,7 @@ describe("AccountPage", () => {
   beforeEach(() => {
     locationsMock.list.mockResolvedValue([]);
     membersMock.list.mockResolvedValue([makeMember()]);
+    subscriptionMock.get.mockResolvedValue(makeSubscription());
   });
 
   afterEach(() => {
@@ -148,7 +153,9 @@ describe("AccountPage", () => {
     expect(await screen.findByText("Warehouse")).toBeInTheDocument();
     expect(screen.getByText("3 cameras")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add location" }));
+    // "Add location" additionally waits on the subscription query (canGrow), a separate
+    // fetch from the locations list just awaited above.
+    await user.click(await screen.findByRole("button", { name: "Add location" }));
     await user.type(screen.getByLabelText("Location name"), "Storefront");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
@@ -177,7 +184,9 @@ describe("AccountPage", () => {
 
     expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add member" }));
+    // "Add member" additionally waits on the subscription query (canGrow), a separate
+    // fetch from the members list just awaited above.
+    await user.click(await screen.findByRole("button", { name: "Add member" }));
     await user.type(screen.getByLabelText("Email"), "new@example.com");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -247,5 +256,30 @@ describe("AccountPage", () => {
     expect(screen.getByRole("button", { name: "Leave" })).toBeInTheDocument();
     // "Create another organization" is not a permission-gated action (anyone can start one).
     expect(screen.getByRole("button", { name: "Create another organization" })).toBeInTheDocument();
+  });
+
+  it("hides Add location/Rename and Add member/role-select once the trial has ended, for an Owner — Delete/Remove stay", async () => {
+    locationsMock.list.mockResolvedValue([makeLocation({ name: "Warehouse" })]);
+    membersMock.list.mockResolvedValue([
+      makeMember({ role: "owner" }),
+      makeMember({ user_id: "u2", email: "other@example.com", name: "Other Member", role: "member" }),
+    ]);
+    subscriptionMock.get.mockResolvedValue(makeSubscription({ status: "expired", is_active: false }));
+    renderWithProviders(<AccountPage />, { authValue: makeAuthValue() });
+
+    await screen.findByText("Warehouse");
+    await screen.findByText("Other Member");
+
+    expect(screen.queryByRole("button", { name: "Add location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add member" })).not.toBeInTheDocument();
+    // A member's role becomes a read-only badge instead of an editable select once
+    // update_member_role is out of reach too (it also grows/edits usage).
+    expect(screen.getByText("Member")).toBeInTheDocument(); // the StatusBadge, not a <select>
+    // Organization rename isn't backend-gated by trial status (see AccountPage.tsx).
+    expect(screen.getByRole("button", { name: "Rename this organization" })).toBeInTheDocument();
+    // Deleting a location and removing a member are never blocked by trial status.
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
   });
 });

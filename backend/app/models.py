@@ -37,6 +37,7 @@ class Organization(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
+    subscription: Mapped[Optional["Subscription"]] = relationship(uselist=False, lazy="joined")
 
 
 class Membership(Base):
@@ -73,6 +74,47 @@ class Location(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
+    )
+
+
+class Subscription(Base):
+    """One row per organization (app/subscription_schemas.py, routers/subscription.py):
+    the trial/subscription state Phase 11 introduces. `status` is "trialing", "active",
+    "expired" or "canceled"; a trialing subscription is treated as active only while
+    `trial_ends_at` is still in the future (app/auth.py's `is_subscription_active`).
+    `plan_type` ("own_hardware" / "vero_cloud") and `max_cameras` exist as the
+    architecture for Phase 12-14, but nothing sets them yet — every organization's
+    `max_cameras` is None (unlimited) until Phase 14 decides real numbers."""
+
+    __tablename__ = "subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), unique=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="trialing", server_default="trialing")
+    plan_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    trial_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # The entitlement mechanism (Phase 11's "licensing architecture"): None means
+    # unlimited. Enforced by routers/cameras.py's create_camera; never set in this phase.
+    max_cameras: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Set when the Owner-only manual override (routers/subscription.py) activates the
+    # subscription — a stand-in for real billing until Phase 15 ships PayPal.
+    activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    activated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 

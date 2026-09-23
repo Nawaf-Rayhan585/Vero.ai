@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import ADMIN, OWNER, get_current_user
+from app.auth import ADMIN, OWNER, get_current_user, new_trial_subscription
 from app.auth_schemas import (
     OrganizationCreate,
     OrganizationMembershipRead,
@@ -56,6 +56,7 @@ def create_organization(
     db.flush()
     db.add(Membership(user_id=user.id, organization_id=organization.id, role=OWNER))
     db.add(Location(organization_id=organization.id, name="Main location"))
+    db.add(new_trial_subscription(organization.id))
     db.commit()
     return OrganizationMembershipRead(organization=OrganizationRead.model_validate(organization), role=OWNER)
 

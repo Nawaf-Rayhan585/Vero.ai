@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import OrgContext, get_org_context, require_configurator
+from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
 from app.counting import LineConfig, Point
 from app.database import get_db
 from app.events import event_recorder
@@ -24,7 +24,9 @@ def _to_status_read(snapshot: TrackingStatusSnapshot) -> TrackingStatusRead:
 
 
 @router.post("/{camera_id}/tracking/start", response_model=TrackingStatusRead)
-def start_tracking(camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)):
+def start_tracking(
+    camera_id: str, ctx: OrgContext = Depends(require_active_configurator), db: Session = Depends(get_db)
+):
     camera = _get_camera_or_404(db, ctx, camera_id)
     username, password = _decrypted_credentials(camera)
     rows = db.scalars(select(Line).where(Line.camera_id == camera.id)).all()

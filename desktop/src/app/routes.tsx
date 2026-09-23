@@ -7,8 +7,8 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { DetectPage } from "../pages/DetectPage";
 import { EventsPage } from "../pages/EventsPage";
 import { LiveViewPage } from "../pages/LiveViewPage";
-import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { SubscriptionPage } from "../pages/SubscriptionPage";
 
 export interface AppRoute {
   path: string;
@@ -27,15 +27,5 @@ export const APP_ROUTES: AppRoute[] = [
   { path: "/ai-modules", navLabel: "AI Modules", element: <AIModulesPage /> },
   { path: "/settings", navLabel: "Settings", element: <SettingsPage /> },
   { path: "/account", navLabel: "Account", element: <AccountPage /> },
-  {
-    path: "/subscription",
-    navLabel: "Subscription",
-    element: (
-      <PlaceholderPage
-        title="Subscription"
-        description="Trial status, plan (Own Hardware or Vero Cloud), and billing via PayPal."
-        phase="Phase 11 (trial/licensing) and Phase 15 (PayPal integration)"
-      />
-    ),
-  },
+  { path: "/subscription", navLabel: "Subscription", element: <SubscriptionPage /> },
 ];

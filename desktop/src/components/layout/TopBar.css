@@ -42,6 +42,21 @@
   cursor: default;
 }
 
+.vero-topbar__trial {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.vero-topbar__trial:hover {
+  text-decoration: underline;
+}
+
+.vero-topbar__trial--expired {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
 .vero-topbar__indicator {
   display: inline-flex;
   align-items: center;

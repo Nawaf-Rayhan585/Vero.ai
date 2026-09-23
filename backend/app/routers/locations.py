@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import OrgContext, get_org_context, require_configurator
+from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
 from app.auth_schemas import LocationCreate, LocationRead, LocationUpdate
 from app.database import get_db
 from app.models import Camera, Location
@@ -50,7 +50,7 @@ def list_locations(ctx: OrgContext = Depends(get_org_context), db: Session = Dep
 
 @router.post("", response_model=LocationRead)
 def create_location(
-    request: LocationCreate, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+    request: LocationCreate, ctx: OrgContext = Depends(require_active_configurator), db: Session = Depends(get_db)
 ):
     location = Location(organization_id=ctx.organization.id, name=request.name, timezone=request.timezone)
     db.add(location)
@@ -66,7 +66,7 @@ def create_location(
 def update_location(
     location_id: str,
     request: LocationUpdate,
-    ctx: OrgContext = Depends(require_configurator),
+    ctx: OrgContext = Depends(require_active_configurator),
     db: Session = Depends(get_db),
 ):
     location = _get_location_or_404(db, ctx, location_id)

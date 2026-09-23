@@ -66,3 +66,11 @@ def test_token_ttls_have_sane_defaults_and_can_be_overridden(monkeypatch):
     overridden = Settings(_env_file=None)
     assert overridden.access_token_ttl_seconds == 5
     assert overridden.refresh_token_ttl_seconds == 10
+
+
+def test_trial_days_has_a_sane_default_and_can_be_overridden(monkeypatch):
+    _set(monkeypatch)
+    assert Settings(_env_file=None).trial_days == 3
+
+    _set(monkeypatch, TRIAL_DAYS="7")
+    assert Settings(_env_file=None).trial_days == 7

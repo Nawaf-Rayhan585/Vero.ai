@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import OrgContext, get_org_context, require_configurator
+from app.auth import OrgContext, get_org_context, require_active_configurator, require_configurator
 from app.database import get_db
 from app.models import Camera, Location, Zone
 from app.routers.cameras import _get_camera_or_404
@@ -33,7 +33,10 @@ def _get_zone_or_404(db: Session, ctx: OrgContext, zone_id: str) -> Zone:
 
 @router.post("/cameras/{camera_id}/zones", response_model=ZoneRead)
 def create_zone(
-    camera_id: str, request: ZoneCreate, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+    camera_id: str,
+    request: ZoneCreate,
+    ctx: OrgContext = Depends(require_active_configurator),
+    db: Session = Depends(get_db),
 ):
     camera = _get_camera_or_404(db, ctx, camera_id)
     zone = Zone(

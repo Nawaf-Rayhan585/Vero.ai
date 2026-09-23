@@ -1,0 +1,23 @@
+.subscription-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.subscription-countdown {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.subscription-countdown--expired {
+  color: var(--color-danger);
+}
+
+.subscription-override-note {
+  margin-top: 0;
+}
+
+.subscription-override-label {
+  font-size: 0.9rem;
+}

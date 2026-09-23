@@ -12,13 +12,27 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.routers import analytics, auth, cameras, events, jobs, lines, locations, members, organizations, tracking, zones
+from app.routers import (
+    analytics,
+    auth,
+    cameras,
+    events,
+    jobs,
+    lines,
+    locations,
+    members,
+    organizations,
+    subscription,
+    tracking,
+    zones,
+)
 
 ROUTERS = [
     auth.router,
     organizations.router,
     locations.router,
     members.router,
+    subscription.router,
     jobs.router,
     cameras.router,
     tracking.router,
@@ -196,3 +210,10 @@ class TestTenantIsolation:
         # to act as that organization via the header is also refused.
         response = scenario.other.get("/cameras", headers={"X-Organization-Id": str(uuid.uuid4())})
         assert response.status_code == 404
+
+    def test_each_organization_has_its_own_independent_subscription(self, client, scenario):
+        client.patch("/subscription", json={"status": "expired"})
+
+        other_subscription = scenario.other.get("/subscription").json()
+        assert other_subscription["status"] == "trialing"
+        assert other_subscription["is_active"] is True

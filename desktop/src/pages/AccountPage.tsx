@@ -4,6 +4,7 @@ import { ApiError } from "../api/client";
 import { useCreateOrganization, useRenameOrganization } from "../hooks/useOrganizations";
 import { useCreateLocation, useDeleteLocation, useLocations, useUpdateLocation } from "../hooks/useLocations";
 import { useAddMember, useMembers, useRemoveMember, useUpdateMemberRole } from "../hooks/useMembers";
+import { useSubscription } from "../hooks/useSubscription";
 import { Button, Card, EmptyState, ErrorNotice, Spinner, StatusBadge } from "../components/ui";
 import type { Location, Member, Role } from "../api/types";
 import "./AccountPage.css";
@@ -247,7 +248,17 @@ function OrganizationsSection() {
   );
 }
 
-function LocationRow({ location, canConfigure }: { location: Location; canConfigure: boolean }) {
+function LocationRow({
+  location,
+  canConfigure,
+  canGrow,
+}: {
+  location: Location;
+  /** Delete — never blocked by trial/subscription status. */
+  canConfigure: boolean;
+  /** Rename — grows/edits usage (require_active_configurator on the backend). */
+  canGrow: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(location.name);
   const updateLocation = useUpdateLocation();
@@ -290,17 +301,19 @@ function LocationRow({ location, canConfigure }: { location: Location; canConfig
         </div>
         {canConfigure && (
           <div className="row">
-            <Button onClick={() => { setDraft(location.name); setEditing(true); }}>Rename</Button>
-            <Button
-              onClick={() => {
-                if (window.confirm(`Delete location "${location.name}"?`)) {
-                  deleteLocation.mutate(location.id);
-                }
-              }}
-              disabled={deleteLocation.isPending}
-            >
-              Delete
-            </Button>
+            {canGrow && <Button onClick={() => { setDraft(location.name); setEditing(true); }}>Rename</Button>}
+            {canConfigure && (
+              <Button
+                onClick={() => {
+                  if (window.confirm(`Delete location "${location.name}"?`)) {
+                    deleteLocation.mutate(location.id);
+                  }
+                }}
+                disabled={deleteLocation.isPending}
+              >
+                Delete
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -311,7 +324,9 @@ function LocationRow({ location, canConfigure }: { location: Location; canConfig
 
 function LocationsSection() {
   const auth = useAuth();
+  const { data: subscription } = useSubscription();
   const canConfigure = auth.currentRole === "owner" || auth.currentRole === "admin";
+  const canGrow = canConfigure && (subscription?.is_active ?? false);
   const { data: locations, isLoading, isError, error } = useLocations();
   const createLocation = useCreateLocation();
   const [adding, setAdding] = useState(false);
@@ -319,7 +334,7 @@ function LocationsSection() {
 
   return (
     <Card title="Locations">
-      {canConfigure && (
+      {canGrow && (
         <div className="row">
           {!adding && <Button variant="primary" onClick={() => setAdding(true)}>Add location</Button>}
         </div>
@@ -363,7 +378,7 @@ function LocationsSection() {
       {locations && locations.length > 0 && (
         <ul className="account-list">
           {locations.map((location) => (
-            <LocationRow key={location.id} location={location} canConfigure={canConfigure} />
+            <LocationRow key={location.id} location={location} canConfigure={canConfigure} canGrow={canGrow} />
           ))}
         </ul>
       )}
@@ -371,7 +386,19 @@ function LocationsSection() {
   );
 }
 
-function MemberRow({ member, ownerCount, canConfigure }: { member: Member; ownerCount: number; canConfigure: boolean }) {
+function MemberRow({
+  member,
+  ownerCount,
+  canConfigure,
+  canGrow,
+}: {
+  member: Member;
+  ownerCount: number;
+  /** Remove/Leave — never blocked by trial/subscription status. */
+  canConfigure: boolean;
+  /** Changing a role — grows/edits usage (require_active_configurator on the backend). */
+  canGrow: boolean;
+}) {
   const auth = useAuth();
   const updateRole = useUpdateMemberRole();
   const removeMember = useRemoveMember();
@@ -398,7 +425,7 @@ function MemberRow({ member, ownerCount, canConfigure }: { member: Member; owner
           <strong>{member.name || member.email}</strong> <span className="account-muted">{member.email}</span>
         </div>
         <div className="row">
-          {canConfigure ? (
+          {canGrow ? (
             <select
               value={member.role}
               disabled={updateRole.isPending || isLastOwner}
@@ -433,7 +460,9 @@ function MemberRow({ member, ownerCount, canConfigure }: { member: Member; owner
 
 function MembersSection() {
   const auth = useAuth();
+  const { data: subscription } = useSubscription();
   const canConfigure = auth.currentRole === "owner" || auth.currentRole === "admin";
+  const canGrow = canConfigure && (subscription?.is_active ?? false);
   const canGrantOwner = auth.currentRole === "owner";
   const { data: members, isLoading, isError, error } = useMembers();
   const addMember = useAddMember();
@@ -445,7 +474,7 @@ function MembersSection() {
 
   return (
     <Card title="Members">
-      {canConfigure && (
+      {canGrow && (
         <div className="row">
           {!adding && <Button variant="primary" onClick={() => setAdding(true)}>Add member</Button>}
         </div>
@@ -498,7 +527,13 @@ function MembersSection() {
       {members && members.length > 0 && (
         <ul className="account-list">
           {members.map((member) => (
-            <MemberRow key={member.user_id} member={member} ownerCount={ownerCount} canConfigure={canConfigure} />
+            <MemberRow
+              key={member.user_id}
+              member={member}
+              ownerCount={ownerCount}
+              canConfigure={canConfigure}
+              canGrow={canGrow}
+            />
           ))}
         </ul>
       )}

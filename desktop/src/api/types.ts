@@ -330,3 +330,31 @@ export interface MemberAddRequest {
   email: string;
   role?: Role;
 }
+
+// -- Subscription / licensing architecture (Phase 11) ------------------------------------
+
+export type SubscriptionStatus = "trialing" | "active" | "expired" | "canceled";
+export type PlanType = "own_hardware" | "vero_cloud";
+
+export interface Subscription {
+  id: string;
+  organization_id: string;
+  status: SubscriptionStatus;
+  plan_type: PlanType | null;
+  trial_started_at: string;
+  trial_ends_at: string;
+  /** The entitlement mechanism (Phase 11's "licensing architecture"). null = unlimited —
+   * true for every organization today, since Phase 14 hasn't decided real numbers yet. */
+  max_cameras: number | null;
+  activated_at: string | null;
+  /** True for "active", or "trialing" with trial_ends_at still in the future — computed
+   * server-side so this never has to be re-derived here. */
+  is_active: boolean;
+}
+
+/** Owner-only manual override — a stand-in for real billing until Phase 15 ships PayPal. */
+export interface SubscriptionUpdateRequest {
+  status?: SubscriptionStatus;
+  plan_type?: PlanType | null;
+  trial_ends_at?: string;
+}

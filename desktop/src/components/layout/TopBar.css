@@ -3,9 +3,43 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--color-border);
+}
+
+.vero-topbar__organization {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vero-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.vero-topbar__signout {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.3em 0.8em;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.vero-topbar__signout:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.vero-topbar__signout:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .vero-topbar__indicator {

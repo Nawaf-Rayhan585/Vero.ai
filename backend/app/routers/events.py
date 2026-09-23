@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
+from app.auth import OrgContext, get_org_context
 from app.database import get_db
-from app.models import Camera, Event
+from app.models import Camera, Event, Location
 from app.routers.cameras import _get_camera_or_404
 from app.schemas import EventListRead, EventRead, EventTypeName
 
@@ -42,14 +43,17 @@ def list_events(
     until: Optional[datetime] = None,
     limit: int = Query(default=50, ge=1, le=500),
     before: Optional[str] = None,
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     """Newest first. `since` is inclusive, `until` exclusive. `event_type` may be given
     more than once to match any of several types. Page backwards by passing the previous
     response's `next_before` as `before` (stable even while new events arrive)."""
-    filters = []
+    # Always scoped to the caller's organization, whether or not a specific camera was
+    # asked for — Location.organization_id == ctx.organization.id is never omitted.
+    filters = [Location.organization_id == ctx.organization.id]
     if camera_id is not None:
-        filters.append(Event.camera_id == _get_camera_or_404(db, camera_id).id)
+        filters.append(Event.camera_id == _get_camera_or_404(db, ctx, camera_id).id)
     if event_type:
         filters.append(Event.event_type.in_([t.value for t in event_type]))
     if category is not None:
@@ -66,6 +70,7 @@ def list_events(
     rows = db.execute(
         select(Event, Camera.name)
         .join(Camera, Camera.id == Event.camera_id)
+        .join(Location, Camera.location_id == Location.id)
         .where(*filters)
         .order_by(Event.occurred_at.desc(), Event.id.desc())
         .limit(limit + 1)

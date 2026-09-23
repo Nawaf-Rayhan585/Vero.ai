@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useCameras, useCreateCamera, useDeleteCamera, useUpdateCamera } from "../hooks/useCameras";
 import { useTestCameraConnection } from "../hooks/useCameraTest";
+import { useLocations } from "../hooks/useLocations";
+import { useAuth } from "../auth/AuthContext";
 import { Button, Card, EmptyState, ErrorNotice, Spinner, StatusBadge } from "../components/ui";
 import type { Camera, CameraCreateRequest, ConnectionStatus } from "../api/types";
 
@@ -15,20 +17,22 @@ const EMPTY_FORM: CameraCreateRequest = {
   rtsp_url: "",
   username: "",
   password: "",
-  location_label: "",
+  location_id: "",
   notes: "",
 };
 
 function toUpdatePayload(form: CameraCreateRequest): CameraCreateRequest {
   // "" -> undefined for optional text fields, so we don't overwrite existing values
   // with blanks just because the form field was left empty; password keeps "" as a
-  // deliberate "clear it" signal (the backend treats that specially).
+  // deliberate "clear it" signal (the backend treats that specially). An empty
+  // location_id means "use the organization's default location" (omit it), not "clear it"
+  // — a camera always belongs to some location.
   return {
     name: form.name,
     rtsp_url: form.rtsp_url,
     username: form.username || null,
     password: form.password,
-    location_label: form.location_label || null,
+    location_id: form.location_id || undefined,
     notes: form.notes || null,
   };
 }
@@ -40,6 +44,7 @@ function CameraForm({
   error,
   onSubmit,
   onCancel,
+  isNew,
 }: {
   initial: CameraCreateRequest;
   submitLabel: string;
@@ -47,8 +52,14 @@ function CameraForm({
   error: string | null;
   onSubmit: (form: CameraCreateRequest) => void;
   onCancel: () => void;
+  /** Only a new camera may be left unset ("organization default"): once a camera exists it
+   * already has a real location, and the location select must always show it — the PATCH
+   * endpoint treats an omitted location_id as "leave unchanged", and there is no way for
+   * this form to know which location the backend would actually default to. */
+  isNew: boolean;
 }) {
   const [form, setForm] = useState(initial);
+  const { data: locations } = useLocations();
 
   function set<K extends keyof CameraCreateRequest>(key: K, value: CameraCreateRequest[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -106,13 +117,19 @@ function CameraForm({
       </div>
       <div className="settings-row">
         <label htmlFor="camera-location">Location</label>
-        <input
+        <select
           id="camera-location"
-          type="text"
-          placeholder="e.g. Warehouse — Loading Dock"
-          value={form.location_label ?? ""}
-          onChange={(e) => set("location_label", e.currentTarget.value)}
-        />
+          required={!isNew}
+          value={form.location_id ?? ""}
+          onChange={(e) => set("location_id", e.currentTarget.value)}
+        >
+          {isNew && <option value="">Organization default</option>}
+          {locations?.map((location) => (
+            <option key={location.id} value={location.id}>
+              {location.name}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="settings-row">
         <label htmlFor="camera-notes">Notes</label>
@@ -138,7 +155,7 @@ function CameraForm({
   );
 }
 
-function CameraRow({ camera }: { camera: Camera }) {
+function CameraRow({ camera, canConfigure }: { camera: Camera; canConfigure: boolean }) {
   const [editing, setEditing] = useState(false);
   const updateCamera = useUpdateCamera();
   const deleteCamera = useDeleteCamera();
@@ -153,10 +170,11 @@ function CameraRow({ camera }: { camera: Camera }) {
             rtsp_url: camera.rtsp_url,
             username: camera.username ?? "",
             password: "",
-            location_label: camera.location_label ?? "",
+            location_id: camera.location_id,
             notes: camera.notes ?? "",
           }}
           submitLabel="Save changes"
+          isNew={false}
           busy={updateCamera.isPending}
           error={updateCamera.isError ? updateCamera.error.message : null}
           onSubmit={(body) =>
@@ -186,31 +204,33 @@ function CameraRow({ camera }: { camera: Camera }) {
             tone={STATUS_TONE[displayCamera.connection_status]}
           />
         </div>
-        <div className="row">
-          <Button onClick={() => testConnection.mutate(camera.id)} disabled={testConnection.isPending}>
-            {testConnection.isPending ? "Testing..." : "Test connection"}
-          </Button>
-          <Button onClick={() => setEditing(true)}>Edit</Button>
-          <Button
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Delete camera "${camera.name}"? Its lines, zones, events and analytics history are deleted with it. This cannot be undone.`,
-                )
-              ) {
-                deleteCamera.mutate(camera.id);
-              }
-            }}
-            disabled={deleteCamera.isPending}
-          >
-            Delete
-          </Button>
-        </div>
+        {canConfigure && (
+          <div className="row">
+            <Button onClick={() => testConnection.mutate(camera.id)} disabled={testConnection.isPending}>
+              {testConnection.isPending ? "Testing..." : "Test connection"}
+            </Button>
+            <Button onClick={() => setEditing(true)}>Edit</Button>
+            <Button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete camera "${camera.name}"? Its lines, zones, events and analytics history are deleted with it. This cannot be undone.`,
+                  )
+                ) {
+                  deleteCamera.mutate(camera.id);
+                }
+              }}
+              disabled={deleteCamera.isPending}
+            >
+              Delete
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="camera-row__details">
         <code>{camera.rtsp_url}</code>
-        {camera.location_label && <span> · {camera.location_label}</span>}
+        <span> · {camera.location_name}</span>
         {camera.has_password && <span> · credentials saved</span>}
       </div>
 
@@ -236,20 +256,25 @@ function CameraRow({ camera }: { camera: Camera }) {
 }
 
 export function CamerasPage() {
+  const auth = useAuth();
+  const canConfigure = auth.currentRole === "owner" || auth.currentRole === "admin";
   const { data: cameras, isLoading, isError, error } = useCameras();
   const createCamera = useCreateCamera();
   const [adding, setAdding] = useState(false);
 
   return (
     <Card title="Cameras">
-      <div className="row">
-        {!adding && <Button variant="primary" onClick={() => setAdding(true)}>Add camera</Button>}
-      </div>
+      {canConfigure && (
+        <div className="row">
+          {!adding && <Button variant="primary" onClick={() => setAdding(true)}>Add camera</Button>}
+        </div>
+      )}
 
       {adding && (
         <CameraForm
           initial={EMPTY_FORM}
           submitLabel="Add camera"
+          isNew
           busy={createCamera.isPending}
           error={createCamera.isError ? createCamera.error.message : null}
           onSubmit={(body) => createCamera.mutate(body, { onSuccess: () => setAdding(false) })}
@@ -267,7 +292,7 @@ export function CamerasPage() {
       {cameras && cameras.length > 0 && (
         <ul className="camera-list">
           {cameras.map((camera) => (
-            <CameraRow key={camera.id} camera={camera} />
+            <CameraRow key={camera.id} camera={camera} canConfigure={canConfigure} />
           ))}
         </ul>
       )}

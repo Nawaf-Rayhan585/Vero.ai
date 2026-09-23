@@ -133,7 +133,8 @@ class CameraCreate(BaseModel):
     rtsp_url: str = Field(min_length=1)
     username: Optional[str] = Field(default=None, max_length=200)
     password: Optional[str] = None
-    location_label: Optional[str] = Field(default=None, max_length=200)
+    # Omit to use the organization's default location.
+    location_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
     enabled_modules: list[AIModuleName] = Field(default_factory=lambda: list(DEFAULT_MODULES))
 
@@ -148,7 +149,8 @@ class CameraUpdate(BaseModel):
     username: Optional[str] = Field(default=None, max_length=200)
     # Omit entirely to leave the stored password unchanged; "" clears it.
     password: Optional[str] = None
-    location_label: Optional[str] = Field(default=None, max_length=200)
+    # Omit to leave the camera's location unchanged; a camera always belongs to one.
+    location_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
     # Omit to leave the selection unchanged; [] is allowed (tracking just won't start
     # until at least one module is enabled).
@@ -165,7 +167,8 @@ class CameraRead(BaseModel):
     rtsp_url: str
     username: Optional[str] = None
     has_password: bool
-    location_label: Optional[str] = None
+    location_id: uuid.UUID
+    location_name: str
     notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -179,14 +182,17 @@ class CameraRead(BaseModel):
 
 
 def camera_to_read(camera) -> "CameraRead":
-    """`has_password` is derived, not a column, so it can't come from from_attributes alone."""
+    """`has_password` and `location_name` are derived, not columns, so they can't come from
+    from_attributes alone. Requires `camera.location` to be loaded (every route that
+    returns a camera joins or loads it — see routers/cameras.py)."""
     return CameraRead(
         id=camera.id,
         name=camera.name,
         rtsp_url=camera.rtsp_url,
         username=camera.username,
         has_password=camera.encrypted_password is not None,
-        location_label=camera.location_label,
+        location_id=camera.location_id,
+        location_name=camera.location.name,
         notes=camera.notes,
         created_at=camera.created_at,
         updated_at=camera.updated_at,

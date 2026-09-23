@@ -31,16 +31,26 @@ describe("app routing", () => {
     expect(within(nav).getAllByRole("link")).toHaveLength(APP_ROUTES.length);
   });
 
-  it("marks the active route with aria-current and navigates to placeholder pages", async () => {
+  it("marks the active route with aria-current and navigates to a real Account page", async () => {
     const user = userEvent.setup();
     renderWithProviders(<TestApp />);
 
-    // Account is still an honest placeholder naming the phase that builds it.
+    // Account is a real page now (Phase 10): it shows the signed-in user's profile.
     await user.click(screen.getByRole("link", { name: "Account" }));
 
     expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
-    expect(screen.getByText(/Phase 10/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+  });
+
+  it("Subscription is still an honest placeholder naming the phases that build it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TestApp />);
+
+    await user.click(screen.getByRole("link", { name: "Subscription" }));
+
+    expect(screen.getByRole("heading", { name: "Subscription" })).toBeInTheDocument();
+    expect(screen.getByText(/Phase 11/)).toBeInTheDocument();
   });
 
   it("Events and Analytics are real pages now, not placeholders", async () => {

@@ -2,12 +2,101 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.modules import DEFAULT_MODULES
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Always stored lowercased (app/routers/auth.py normalizes it) so lookups and the
+    # unique constraint are case-insensitive without a citext extension.
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class Membership(Base):
+    """A user's role within one organization. A user can belong to several organizations
+    (docs/ARCHITECTURE.md: "one user across multiple organizations where appropriate")."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("user_id", "organization_id", name="uq_membership_user_org"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    # "owner" / "admin" / "member" (app/auth.py). Plain string, not an enum column, so
+    # adding a role later is a data migration, not a schema one.
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class Location(Base):
+    __tablename__ = "locations"
+    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_location_org_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    # IANA name, default UTC. Not used yet, but a location — not a camera — is the natural
+    # place for "what time zone is this site in", ahead of per-location analytics later.
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC", server_default="UTC")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class RefreshToken(Base):
+    """A refresh token's row. The token value itself is never stored — only its SHA-256
+    hash (app/security.py) — so reading the database can't hand out a working session.
+    `replaced_by` links a used-and-rotated token to the one issued in its place, which is
+    what lets reuse of an already-rotated token be detected as theft."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("refresh_tokens.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
 
 
 class Camera(Base):
@@ -18,8 +107,18 @@ class Camera(Base):
     rtsp_url: Mapped[str] = mapped_column(Text)
     username: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     encrypted_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # Free text, not a foreign key: real Location rows don't exist until Phase 10.
+    # Legacy free-text location, kept only so the one-time adoption step (app/auth.py's
+    # adopt_orphans) can turn pre-Phase-10 cameras' labels into real Location rows. The API
+    # no longer reads or writes it — use location_id.
     location_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # Nullable at the database level only so rows created before this column existed keep
+    # loading; every camera the API creates or updates always has one. ON DELETE RESTRICT:
+    # deleting a location with cameras on it would silently destroy their history, so the
+    # location must be emptied (or the cameras moved) first.
+    location_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    location: Mapped[Optional["Location"]] = relationship(lazy="joined")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -146,6 +245,11 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Nullable at the database level only, for the same reason as Camera.location_id: jobs
+    # created before organizations existed are attached to one by the adoption step.
+    organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True
+    )
     video_source: Mapped[str] = mapped_column(Text)
     model_type: Mapped[str] = mapped_column(String(32))
     confidence_threshold: Mapped[float] = mapped_column(Float)

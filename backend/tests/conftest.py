@@ -63,16 +63,82 @@ def clean_tables(test_database):
     from app.database import engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE jobs, cameras, lines, zones, events, heatmap_snapshots"))
+        conn.execute(
+            text(
+                "TRUNCATE TABLE jobs, cameras, lines, zones, events, heatmap_snapshots, "
+                "refresh_tokens, memberships, locations, organizations, users"
+            )
+        )
+
+
+TEST_PASSWORD = "test-password-123"
+
+
+def _register(test_client, email: str, organization_name: str = "Test Org", name: str = "Test User", password: str = TEST_PASSWORD):
+    response = test_client.post(
+        "/auth/register",
+        json={"email": email, "password": password, "name": name, "organization_name": organization_name},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    test_client.headers["Authorization"] = f"Bearer {body['access_token']}"
+    # Convenience, not part of the real API: the test's own user/org, and its refresh
+    # token in case a test wants to exercise /auth/refresh or /auth/logout directly.
+    test_client.test_user = body["user"]
+    test_client.test_organization = body["organizations"][0]["organization"]
+    test_client.test_refresh_token = body["refresh_token"]
+    return test_client
 
 
 @pytest.fixture
-def client():
+def anonymous_client():
+    """The app with no Authorization header — for asserting that anonymous requests are
+    rejected, and as the starting point for registering additional test accounts."""
     from fastapi.testclient import TestClient
 
     from main import app
 
     return TestClient(app)
+
+
+@pytest.fixture
+def register_user(anonymous_client):
+    """Factory: registers a brand-new user + organization (each call's own, independent of
+    the `client` fixture's) and returns an authenticated TestClient for them — for tests
+    that need a *second* account: tenant isolation, roles, multi-organization membership."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    def register(email: str, **kwargs):
+        return _register(TestClient(app), email, **kwargs)
+
+    return register
+
+
+@pytest.fixture
+def client(anonymous_client):
+    """A backend client authenticated as a fresh test user who owns a fresh test
+    organization (with its default "Main location"). Auth is universal now, so being
+    logged in — not needing to log in — is the default most tests should assume."""
+    return _register(anonymous_client, "owner@example.com")
+
+
+@pytest.fixture
+def add_member():
+    """Factory: adds `member_client`'s user to `owner_client`'s organization with the given
+    role (via the real API), and points `member_client` at that organization by default —
+    a person can belong to several organizations (their own, from registering, plus this
+    one), so without this their requests would otherwise hit the "which one did you mean"
+    400 rather than the role check a test is actually trying to exercise."""
+
+    def add(owner_client, member_client, role="member"):
+        response = owner_client.post("/members", json={"email": member_client.test_user["email"], "role": role})
+        assert response.status_code == 200, response.text
+        member_client.headers["X-Organization-Id"] = owner_client.test_organization["id"]
+        return response.json()
+
+    return add
 
 
 @pytest.fixture

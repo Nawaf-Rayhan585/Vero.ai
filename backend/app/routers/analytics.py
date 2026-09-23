@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app import analytics, camera_testing
+from app.auth import OrgContext, get_org_context
 from app.database import get_db
 from app.heatmap import render_heat
-from app.models import Camera
-from app.routers.cameras import _decrypted_credentials, _get_camera_or_404
+from app.routers.cameras import _camera_ids_for_org, _decrypted_credentials, _get_camera_or_404
 from app.routers.events import as_utc
 from app.schemas import AnalyticsSummaryRead, HeatmapInfoRead, TimeseriesRead
 
@@ -27,8 +27,12 @@ def _resolve_range(since: datetime, until: Optional[datetime]) -> tuple[datetime
     return since, until, now
 
 
-def _optional_camera(db: Session, camera_id: Optional[str]) -> Optional[Camera]:
-    return _get_camera_or_404(db, camera_id) if camera_id is not None else None
+def _resolve_camera_ids(db: Session, ctx: OrgContext, camera_id: Optional[str]) -> list:
+    """One camera (already checked to be in the caller's organization), or every camera
+    in it — never unscoped."""
+    if camera_id is not None:
+        return [_get_camera_or_404(db, ctx, camera_id).id]
+    return _camera_ids_for_org(db, ctx)
 
 
 @router.get("/summary", response_model=AnalyticsSummaryRead)
@@ -36,12 +40,13 @@ def get_summary(
     since: datetime,
     until: Optional[datetime] = None,
     camera_id: Optional[str] = None,
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     """Totals for [since, until) — `until` defaults to now — for one camera or all of them."""
     since, until, now = _resolve_range(since, until)
-    camera = _optional_camera(db, camera_id)
-    return analytics.summary(db, camera.id if camera else None, since, until, now)
+    camera_ids = _resolve_camera_ids(db, ctx, camera_id)
+    return analytics.summary(db, camera_ids, since, until, now)
 
 
 @router.get("/timeseries", response_model=TimeseriesRead)
@@ -51,14 +56,15 @@ def get_timeseries(
     camera_id: Optional[str] = None,
     bucket: str = Query(default="hour", pattern="^(hour|day)$"),
     tz: str = Query(default="UTC", max_length=64),
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     """Zero-filled buckets in the given IANA time zone, each with `tracked_seconds` so a
     chart can tell "not running" from "no traffic"."""
     since, until, now = _resolve_range(since, until)
-    camera = _optional_camera(db, camera_id)
+    camera_ids = _resolve_camera_ids(db, ctx, camera_id)
     try:
-        return analytics.timeseries(db, camera.id if camera else None, since, until, bucket, tz, now)
+        return analytics.timeseries(db, camera_ids, since, until, bucket, tz, now)
     except analytics.AnalyticsInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -68,10 +74,11 @@ def get_heatmap_info(
     camera_id: str,
     since: datetime,
     until: Optional[datetime] = None,
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     since, until, _now = _resolve_range(since, until)
-    camera = _get_camera_or_404(db, camera_id)
+    camera = _get_camera_or_404(db, ctx, camera_id)
     heat = analytics.heat_sum(db, camera.id, since, until)
     if heat is None:
         return HeatmapInfoRead(camera_id=camera.id, available=False)
@@ -94,13 +101,14 @@ def get_heatmap(
     camera_id: str,
     since: datetime,
     until: Optional[datetime] = None,
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     """A JPEG of the camera's stored heat over the range, drawn over a fresh snapshot when
     the camera answers, or over a neutral background when it doesn't. No video frame is
     ever stored: the picture underneath is fetched now, or is plain grey."""
     since, until, _now = _resolve_range(since, until)
-    camera = _get_camera_or_404(db, camera_id)
+    camera = _get_camera_or_404(db, ctx, camera_id)
     heat = analytics.heat_sum(db, camera.id, since, until)
     if heat is None:
         raise HTTPException(status_code=404, detail="No heatmap was recorded for this camera in that period")

@@ -7,23 +7,37 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import camera_testing
+from app.auth import OrgContext, get_org_context, require_configurator
 from app.crypto import decrypt_password, encrypt_password
 from app.database import get_db
-from app.models import Camera
+from app.models import Camera, Location
+from app.routers.locations import _get_location_or_404
 from app.schemas import CameraCreate, CameraRead, CameraUpdate, camera_to_read
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 
-def _get_camera_or_404(db: Session, camera_id: str) -> Camera:
+def _get_camera_or_404(db: Session, ctx: OrgContext, camera_id: str) -> Camera:
     try:
         parsed_id = uuid.UUID(camera_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Camera not found")
-    camera = db.get(Camera, parsed_id)
+    camera = db.scalar(
+        select(Camera).join(Location).where(Camera.id == parsed_id, Location.organization_id == ctx.organization.id)
+    )
     if camera is None:
+        # Never distinguishes "does not exist" from "belongs to another organization".
         raise HTTPException(status_code=404, detail="Camera not found")
     return camera
+
+
+def _camera_ids_for_org(db: Session, ctx: OrgContext) -> list[uuid.UUID]:
+    """Every camera id in the caller's organization — the scoping list events/analytics
+    queries use when no specific camera was asked for. An organization with no cameras
+    correctly yields an empty list, not "unscoped"."""
+    return list(
+        db.scalars(select(Camera.id).join(Location).where(Location.organization_id == ctx.organization.id)).all()
+    )
 
 
 def _decrypted_credentials(camera: Camera) -> tuple[str | None, str | None]:
@@ -31,14 +45,32 @@ def _decrypted_credentials(camera: Camera) -> tuple[str | None, str | None]:
     return camera.username, password
 
 
+def _default_location(db: Session, ctx: OrgContext) -> Location:
+    location = db.scalar(
+        select(Location).where(Location.organization_id == ctx.organization.id).order_by(Location.created_at)
+    )
+    if location is None:
+        raise HTTPException(
+            status_code=422, detail="This organization has no locations; create one first, or specify location_id"
+        )
+    return location
+
+
 @router.post("", response_model=CameraRead)
-def create_camera(request: CameraCreate, db: Session = Depends(get_db)):
+def create_camera(
+    request: CameraCreate, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+):
+    location = (
+        _get_location_or_404(db, ctx, str(request.location_id))
+        if request.location_id is not None
+        else _default_location(db, ctx)
+    )
     camera = Camera(
         name=request.name,
         rtsp_url=request.rtsp_url,
         username=request.username,
         encrypted_password=encrypt_password(request.password) if request.password else None,
-        location_label=request.location_label,
+        location_id=location.id,
         notes=request.notes,
         connection_status="unknown",
         enabled_modules=request.enabled_modules,
@@ -49,23 +81,35 @@ def create_camera(request: CameraCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=list[CameraRead])
-def list_cameras(db: Session = Depends(get_db)):
-    cameras = db.scalars(select(Camera).order_by(Camera.created_at)).all()
+def list_cameras(ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
+    cameras = db.scalars(
+        select(Camera).join(Location).where(Location.organization_id == ctx.organization.id).order_by(Camera.created_at)
+    ).all()
     return [camera_to_read(c) for c in cameras]
 
 
 @router.get("/{camera_id}", response_model=CameraRead)
-def get_camera(camera_id: str, db: Session = Depends(get_db)):
-    return camera_to_read(_get_camera_or_404(db, camera_id))
+def get_camera(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
+    return camera_to_read(_get_camera_or_404(db, ctx, camera_id))
 
 
 @router.patch("/{camera_id}", response_model=CameraRead)
-def update_camera(camera_id: str, request: CameraUpdate, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def update_camera(
+    camera_id: str,
+    request: CameraUpdate,
+    ctx: OrgContext = Depends(require_configurator),
+    db: Session = Depends(get_db),
+):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     updates = request.model_dump(exclude_unset=True)
-    # An explicit null means "leave it as is", not "clear it" — the column is NOT NULL.
+    # An explicit null means "leave it as is", not "clear it" — the columns are NOT NULL.
     if updates.get("enabled_modules", ...) is None:
         updates.pop("enabled_modules", None)
+    if "location_id" in updates:
+        if updates["location_id"] is None:
+            updates.pop("location_id")
+        else:
+            updates["location_id"] = _get_location_or_404(db, ctx, str(updates["location_id"])).id
 
     if "password" in updates:
         password = updates.pop("password")
@@ -74,20 +118,26 @@ def update_camera(camera_id: str, request: CameraUpdate, db: Session = Depends(g
         setattr(camera, field, value)
 
     db.commit()
+    if "location_id" in updates:
+        # expire_on_commit=False (app/database.py) means camera.location would otherwise
+        # keep pointing at the *old* location object loaded before this change.
+        db.expire(camera, ["location"])
     return camera_to_read(camera)
 
 
 @router.delete("/{camera_id}", status_code=204)
-def delete_camera(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def delete_camera(camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     db.delete(camera)
     db.commit()
     return Response(status_code=204)
 
 
 @router.post("/{camera_id}/test-connection", response_model=CameraRead)
-def test_camera_connection(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def test_camera_connection(
+    camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)
+):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     username, password = _decrypted_credentials(camera)
     outcome = camera_testing.test_connection(camera.rtsp_url, username, password)
 
@@ -102,8 +152,8 @@ def test_camera_connection(camera_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{camera_id}/snapshot")
-def get_camera_snapshot(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def get_camera_snapshot(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     username, password = _decrypted_credentials(camera)
     result = camera_testing.grab_snapshot(camera.rtsp_url, username, password)
 

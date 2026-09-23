@@ -11,7 +11,8 @@ CAMERA_KEYS = {
     "rtsp_url",
     "username",
     "has_password",
-    "location_label",
+    "location_id",
+    "location_name",
     "notes",
     "created_at",
     "updated_at",
@@ -96,14 +97,40 @@ def test_invalid_create_requests_return_422(client, body):
     assert client.post("/cameras", json=body).status_code == 422
 
 
+def test_a_new_camera_defaults_to_the_organizations_default_location(client):
+    body = _create(client).json()
+
+    assert body["location_name"] == "Main location"
+
+
 def test_update_camera_name_and_location(client):
     camera_id = _create(client).json()["id"]
+    warehouse = client.post("/locations", json={"name": "Warehouse"}).json()
 
-    body = client.patch(f"/cameras/{camera_id}", json={"name": "Back door", "location_label": "Warehouse"}).json()
+    body = client.patch(f"/cameras/{camera_id}", json={"name": "Back door", "location_id": warehouse["id"]}).json()
 
     assert body["name"] == "Back door"
-    assert body["location_label"] == "Warehouse"
+    assert body["location_id"] == warehouse["id"]
+    assert body["location_name"] == "Warehouse"
     assert body["rtsp_url"] == "rtsp://192.0.2.10:554/stream1"  # untouched
+
+
+def test_create_camera_with_an_explicit_location(client):
+    warehouse = client.post("/locations", json={"name": "Warehouse"}).json()
+
+    body = _create(client, location_id=warehouse["id"]).json()
+
+    assert body["location_id"] == warehouse["id"]
+    assert body["location_name"] == "Warehouse"
+
+
+def test_create_camera_with_another_organizations_location_is_rejected(client, register_user):
+    other = register_user("other-org-owner@example.com", organization_name="Other Org")
+    other_location = other.post("/locations", json={"name": "Their place"}).json()
+
+    response = _create(client, location_id=other_location["id"])
+
+    assert response.status_code == 404
 
 
 def test_update_omitting_password_leaves_existing_password_unchanged(client, db_session):

@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import OrgContext, get_org_context
 from app.database import get_db
 from app.detection_runner import run_detection_job
 from app.models import Job
@@ -16,9 +17,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 def create_job(
     request: JobCreateRequest,
     background_tasks: BackgroundTasks,
+    ctx: OrgContext = Depends(get_org_context),
     db: Session = Depends(get_db),
 ):
     job = Job(
+        organization_id=ctx.organization.id,
         video_source=request.video_source,
         model_type=request.model_type.value,
         confidence_threshold=request.confidence_threshold,
@@ -31,17 +34,19 @@ def create_job(
 
 
 @router.get("/{job_id}", response_model=JobRead)
-def get_job(job_id: str, db: Session = Depends(get_db)):
+def get_job(job_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
     try:
         parsed_id = uuid.UUID(job_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Job not found")
-    job = db.get(Job, parsed_id)
+    job = db.scalar(select(Job).where(Job.id == parsed_id, Job.organization_id == ctx.organization.id))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 
 @router.get("", response_model=list[JobRead])
-def list_jobs(db: Session = Depends(get_db)):
-    return db.scalars(select(Job).order_by(Job.created_at)).all()
+def list_jobs(ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
+    return db.scalars(
+        select(Job).where(Job.organization_id == ctx.organization.id).order_by(Job.created_at)
+    ).all()

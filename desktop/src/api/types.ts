@@ -42,7 +42,8 @@ export interface Camera {
   rtsp_url: string;
   username: string | null;
   has_password: boolean;
-  location_label: string | null;
+  location_id: string;
+  location_name: string;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -60,7 +61,8 @@ export interface CameraCreateRequest {
   rtsp_url: string;
   username?: string | null;
   password?: string | null;
-  location_label?: string | null;
+  /** Omit to use the organization's default location. */
+  location_id?: string | null;
   notes?: string | null;
   enabled_modules?: AIModule[];
 }
@@ -244,4 +246,87 @@ export interface HeatmapInfo {
   first_period: string | null;
   last_period: string | null;
   ignored_samples: number;
+}
+
+// -- Auth, organizations, locations, members (Phase 10) ---------------------------------
+
+export type Role = "owner" | "admin" | "member";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  created_at: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface OrganizationMembership {
+  organization: Organization;
+  role: Role;
+}
+
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  /** Seconds until the access token expires. */
+  expires_in: number;
+  user: User;
+  organizations: OrganizationMembership[];
+}
+
+export interface MeResponse {
+  user: User;
+  organizations: OrganizationMembership[];
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+  organization_name: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export interface Location {
+  id: string;
+  organization_id: string;
+  name: string;
+  timezone: string;
+  camera_count: number;
+  created_at: string;
+}
+
+export interface LocationCreateRequest {
+  name: string;
+  timezone?: string;
+}
+
+export type LocationUpdateRequest = Partial<LocationCreateRequest>;
+
+export interface Member {
+  user_id: string;
+  email: string;
+  name: string;
+  role: Role;
+  created_at: string;
+}
+
+export interface MemberAddRequest {
+  email: string;
+  role?: Role;
 }

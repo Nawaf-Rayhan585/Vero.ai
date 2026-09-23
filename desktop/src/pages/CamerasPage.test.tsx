@@ -1,13 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/renderWithProviders";
+import { makeAuthValue } from "../test/authFixtures";
 import { camerasApi } from "../api/cameras";
+import { locationsApi } from "../api/locations";
 import { CamerasPage } from "./CamerasPage";
-import type { Camera } from "../api/types";
+import type { Camera, Location } from "../api/types";
 
 vi.mock("../api/cameras");
+vi.mock("../api/locations");
 const camerasMock = vi.mocked(camerasApi);
+const locationsMock = vi.mocked(locationsApi);
+
+const WAREHOUSE: Location = {
+  id: "loc-1",
+  organization_id: "22222222-2222-2222-2222-222222222222",
+  name: "Warehouse",
+  timezone: "UTC",
+  camera_count: 1,
+  created_at: "2026-01-01T00:00:00Z",
+};
 
 function makeCamera(overrides: Partial<Camera> = {}): Camera {
   return {
@@ -16,7 +29,8 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     rtsp_url: "rtsp://192.0.2.10:554/stream1",
     username: null,
     has_password: false,
-    location_label: null,
+    location_id: WAREHOUSE.id,
+    location_name: WAREHOUSE.name,
     notes: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -34,6 +48,7 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
 describe("CamerasPage", () => {
   beforeEach(() => {
     camerasMock.list.mockResolvedValue([]);
+    locationsMock.list.mockResolvedValue([WAREHOUSE]);
   });
 
   afterEach(() => {
@@ -45,13 +60,14 @@ describe("CamerasPage", () => {
     expect(await screen.findByText("No cameras yet")).toBeInTheDocument();
   });
 
-  it("lists cameras with a status badge", async () => {
+  it("lists cameras with a status badge and their location", async () => {
     camerasMock.list.mockResolvedValue([makeCamera({ connection_status: "online" })]);
     renderWithProviders(<CamerasPage />);
 
     expect(await screen.findByText("Front door")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("rtsp://192.0.2.10:554/stream1")).toBeInTheDocument();
+    expect(screen.getByText(/Warehouse/)).toBeInTheDocument();
   });
 
   it("adding a camera submits the form and closes it on success", async () => {
@@ -79,8 +95,19 @@ describe("CamerasPage", () => {
     expect(nameInput).toBeRequired();
   });
 
-  it("editing a camera pre-fills the form and submits an update", async () => {
-    camerasMock.list.mockResolvedValue([makeCamera({ location_label: "Warehouse" })]);
+  it("the location select offers 'organization default' plus every location when adding", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<CamerasPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Add camera" }));
+    const select = (await screen.findByLabelText("Location")) as HTMLSelectElement;
+    expect(within(select).getByRole("option", { name: "Organization default" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "Warehouse" })).toBeInTheDocument();
+    expect(select).not.toBeRequired();
+  });
+
+  it("editing a camera pre-fills the form (location required, no default option) and submits an update", async () => {
+    camerasMock.list.mockResolvedValue([makeCamera()]);
     camerasMock.update.mockResolvedValue(makeCamera({ name: "Back door" }));
     const user = userEvent.setup();
     renderWithProviders(<CamerasPage />);
@@ -88,7 +115,10 @@ describe("CamerasPage", () => {
     await user.click(await screen.findByRole("button", { name: "Edit" }));
     const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
     expect(nameInput.value).toBe("Front door");
-    expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe("Warehouse");
+    const locationSelect = screen.getByLabelText("Location") as HTMLSelectElement;
+    expect(locationSelect.value).toBe(WAREHOUSE.id);
+    expect(locationSelect).toBeRequired();
+    expect(within(locationSelect).queryByRole("option", { name: "Organization default" })).not.toBeInTheDocument();
 
     await user.clear(nameInput);
     await user.type(nameInput, "Back door");
@@ -96,7 +126,7 @@ describe("CamerasPage", () => {
 
     expect(camerasMock.update).toHaveBeenCalledWith(
       "11111111-1111-1111-1111-111111111111",
-      expect.objectContaining({ name: "Back door" }),
+      expect.objectContaining({ name: "Back door", location_id: WAREHOUSE.id }),
     );
   });
 
@@ -166,5 +196,16 @@ describe("CamerasPage", () => {
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     expect(await screen.findByText("Server returned 500")).toBeInTheDocument();
+  });
+
+  it("hides every configuration control from a member (the API enforces it regardless)", async () => {
+    camerasMock.list.mockResolvedValue([makeCamera()]);
+    renderWithProviders(<CamerasPage />, { authValue: makeAuthValue({ currentRole: "member" }) });
+
+    await screen.findByText("Front door");
+    expect(screen.queryByRole("button", { name: "Add camera" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Test connection" })).not.toBeInTheDocument();
   });
 });

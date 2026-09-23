@@ -63,12 +63,12 @@ def test_the_selection_can_be_changed_and_persists(client):
 
 
 def test_changing_the_selection_leaves_the_other_camera_fields_alone(client):
-    camera_id = _create_camera(client, location_label="Entrance", notes="north side")["id"]
+    camera_id = _create_camera(client, notes="north side")["id"]
 
     body = client.patch(f"/cameras/{camera_id}", json={"enabled_modules": ["barcode"]}).json()
 
     assert body["name"] == "Front door"
-    assert body["location_label"] == "Entrance"
+    assert body["location_name"] == "Main location"
     assert body["notes"] == "north side"
 
 
@@ -112,10 +112,11 @@ def test_unknown_or_malformed_modules_return_422(client, bad):
     assert client.post("/cameras", json={"name": "x", "rtsp_url": "rtsp://x/y", "enabled_modules": bad}).status_code == 422
 
 
-def test_a_camera_that_predates_module_selection_reads_as_people_only(client, db_session):
-    # A row inserted the way it would have been before the column existed — without
-    # enabled_modules at all — must pick up the server default, so upgraded installs keep
-    # behaving exactly as they did.
+def test_a_camera_that_predates_module_selection_reads_as_people_only(anonymous_client, db_session):
+    # A row inserted the way it would have been before the enabled_modules column (or
+    # organizations at all) existed — no enabled_modules, no location — must pick up the
+    # server default and get adopted into the first organization to register (Phase 10's
+    # adopt_orphans), so upgraded installs keep working exactly as they did.
     camera_id = uuid.uuid4()
     db_session.execute(
         text("INSERT INTO cameras (id, name, rtsp_url, connection_status) VALUES (:id, 'Old camera', 'rtsp://x/y', 'unknown')"),
@@ -123,7 +124,15 @@ def test_a_camera_that_predates_module_selection_reads_as_people_only(client, db
     )
     db_session.commit()
 
-    assert client.get(f"/cameras/{camera_id}").json()["enabled_modules"] == ["people"]
+    response = anonymous_client.post(
+        "/auth/register",
+        json={"email": "owner@example.com", "password": "test-password-123", "name": "Owner", "organization_name": "Org"},
+    )
+    anonymous_client.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
+
+    body = anonymous_client.get(f"/cameras/{camera_id}").json()
+    assert body["enabled_modules"] == ["people"]
+    assert body["location_name"] == "Main location"
 
 
 def test_starting_tracking_with_no_modules_enabled_returns_422(client):

@@ -48,6 +48,8 @@ User → Organization → Location → Camera → AI Modules → Events / Analyt
 
 Must support: one user across multiple organizations where appropriate, multiple locations, multiple cameras per location, different AI modules enabled per camera, different plan limits per organization/plan.
 
+**Implemented in Phase 10:** `User → Organization → Location → Camera`, Owner/Admin/Member roles, and one user belonging to several organizations — but in *this same local backend and PostgreSQL*, not the separate "Vero.ai Cloud" box in the diagram above, which doesn't exist until Phases 12/13. The auth code (`backend/app/security.py`, `app/auth.py`) is kept in its own modules so it can move without rewriting the rest of the backend. Whether an Own Hardware customer's accounts stay local, move to the cloud, or sync between the two is an open decision for Phases 12/13 (see `ROADMAP.md`'s open items).
+
 ## Camera architecture
 
 Per camera: RTSP URL, name, location, credentials, connection testing, connection status, reconnection, per-camera AI module selection, per-camera settings, FPS/resolution handling, live preview where practical. Camera streams are not assumed identical.

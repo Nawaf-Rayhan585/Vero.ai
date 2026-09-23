@@ -83,15 +83,17 @@ def overlap_seconds(intervals: Iterable[Interval], start: datetime, end: datetim
 
 
 def uptime_intervals(
-    db: Session, camera_id: Optional[uuid.UUID], since: datetime, until: datetime, now: datetime
+    db: Session, camera_ids: list[uuid.UUID], since: datetime, until: datetime, now: datetime
 ) -> list[Interval]:
-    """Every camera's tracked intervals in the range (one camera, or all of them),
-    flattened: summing their overlap with a bucket gives camera-seconds tracked."""
+    """Every camera's tracked intervals in the range (one camera, or every camera the
+    caller may see — `camera_ids` is always resolved and organization-scoped by the
+    router, never "all cameras" unscoped), flattened: summing their overlap with a bucket
+    gives camera-seconds tracked."""
     end = min(until, now)
-    if end <= since:
+    if end <= since or not camera_ids:
         return []
 
-    camera_filter = [Event.camera_id == camera_id] if camera_id else []
+    camera_filter = [Event.camera_id.in_(camera_ids)]
     prior = db.scalars(
         select(Event)
         .where(Event.event_type.in_(UPTIME_EVENT_TYPES), Event.occurred_at < since, *camera_filter)
@@ -142,16 +144,15 @@ def _crossing_counts():
     ]
 
 
-def _range_filters(camera_id: Optional[uuid.UUID], since: datetime, until: datetime) -> list:
-    filters = [Event.occurred_at >= since, Event.occurred_at < until]
-    if camera_id:
-        filters.append(Event.camera_id == camera_id)
-    return filters
+def _range_filters(camera_ids: list[uuid.UUID], since: datetime, until: datetime) -> list:
+    # camera_ids is always a concrete, organization-scoped list from the router — an empty
+    # list (an organization with no cameras) correctly matches nothing, never "everything".
+    return [Event.occurred_at >= since, Event.occurred_at < until, Event.camera_id.in_(camera_ids)]
 
 
-def summary(db: Session, camera_id: Optional[uuid.UUID], since: datetime, until: datetime, now: datetime) -> dict:
+def summary(db: Session, camera_ids: list[uuid.UUID], since: datetime, until: datetime, now: datetime) -> dict:
     e = Event
-    filters = _range_filters(camera_id, since, until)
+    filters = _range_filters(camera_ids, since, until)
 
     totals = db.execute(select(*_crossing_counts()).where(*filters)).one()
 
@@ -179,7 +180,7 @@ def summary(db: Session, camera_id: Optional[uuid.UUID], since: datetime, until:
     )
 
     tracked = sum(
-        (end - start).total_seconds() for start, end in uptime_intervals(db, camera_id, since, until, now)
+        (end - start).total_seconds() for start, end in uptime_intervals(db, camera_ids, since, until, now)
     )
 
     return {
@@ -228,7 +229,7 @@ _BUCKETS_SQL = text(
 
 def timeseries(
     db: Session,
-    camera_id: Optional[uuid.UUID],
+    camera_ids: list[uuid.UUID],
     since: datetime,
     until: datetime,
     bucket: str,
@@ -260,14 +261,14 @@ def timeseries(
             _count_where(e.event_type == ZONE_EXITED).label("zone_exited"),
             _count_where(e.event_type == READ).label("reads"),
         )
-        .where(*_range_filters(camera_id, since, until))
+        .where(*_range_filters(camera_ids, since, until))
         # Ordinal, not the expression: repeating a parametrised date_trunc(...) in GROUP BY
         # gets fresh bind parameters, which PostgreSQL then refuses to treat as the same.
         .group_by(text("1"))
     ).all()
     counts_by_bucket = {row.local_start: row for row in rows}
 
-    intervals = uptime_intervals(db, camera_id, since, until, now)
+    intervals = uptime_intervals(db, camera_ids, since, until, now)
 
     points = []
     for local_start, start_utc, end_utc in buckets:

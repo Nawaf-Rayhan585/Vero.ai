@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import OrgContext, get_org_context, require_configurator
 from app.counting import LineConfig, Point
 from app.database import get_db
 from app.events import event_recorder
@@ -23,8 +24,8 @@ def _to_status_read(snapshot: TrackingStatusSnapshot) -> TrackingStatusRead:
 
 
 @router.post("/{camera_id}/tracking/start", response_model=TrackingStatusRead)
-def start_tracking(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def start_tracking(camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     username, password = _decrypted_credentials(camera)
     rows = db.scalars(select(Line).where(Line.camera_id == camera.id)).all()
     lines = [LineConfig(id=row.id, name=row.name, x1=row.x1, y1=row.y1, x2=row.x2, y2=row.y2) for row in rows]
@@ -45,15 +46,15 @@ def start_tracking(camera_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{camera_id}/tracking/stop", response_model=TrackingStatusRead)
-def stop_tracking(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def stop_tracking(camera_id: str, ctx: OrgContext = Depends(require_configurator), db: Session = Depends(get_db)):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     tracking_manager.stop(camera.id)
     return _STOPPED_SNAPSHOT
 
 
 @router.get("/{camera_id}/tracking/status", response_model=TrackingStatusRead)
-def get_tracking_status(camera_id: str, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def get_tracking_status(camera_id: str, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     session = tracking_manager.get(camera.id)
     if session is None:
         return _STOPPED_SNAPSHOT
@@ -61,8 +62,10 @@ def get_tracking_status(camera_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{camera_id}/tracking/latest-frame")
-def get_latest_tracking_frame(camera_id: str, heatmap: bool = False, db: Session = Depends(get_db)):
-    camera = _get_camera_or_404(db, camera_id)
+def get_latest_tracking_frame(
+    camera_id: str, heatmap: bool = False, ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)
+):
+    camera = _get_camera_or_404(db, ctx, camera_id)
     session = tracking_manager.get(camera.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Tracking has not been started for this camera")

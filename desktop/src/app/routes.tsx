@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AccountPage } from "../pages/AccountPage";
 import { AIModulesPage } from "../pages/AIModulesPage";
 import { AnalyticsPage } from "../pages/AnalyticsPage";
 import { CamerasPage } from "../pages/CamerasPage";
@@ -25,17 +26,7 @@ export const APP_ROUTES: AppRoute[] = [
   { path: "/analytics", navLabel: "Analytics", element: <AnalyticsPage /> },
   { path: "/ai-modules", navLabel: "AI Modules", element: <AIModulesPage /> },
   { path: "/settings", navLabel: "Settings", element: <SettingsPage /> },
-  {
-    path: "/account",
-    navLabel: "Account",
-    element: (
-      <PlaceholderPage
-        title="Account"
-        description="Sign in, manage your organization and locations."
-        phase="Phase 10 (Authentication + organizations + locations)"
-      />
-    ),
-  },
+  { path: "/account", navLabel: "Account", element: <AccountPage /> },
   {
     path: "/subscription",
     navLabel: "Subscription",

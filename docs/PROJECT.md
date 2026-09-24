@@ -28,7 +28,7 @@ Because Vero.ai is not paying for the customer's compute, this plan carries a si
 
 The customer lacks suitable hardware. Vero.ai supplies the cloud AI infrastructure end-to-end.
 
-This plan is priced from real infrastructure economics — GPU/CPU compute, camera count/resolution/FPS, bandwidth, database, storage, monitoring, payment fees, operating overhead, and profit margin — calculated in a dedicated phase (**Phase 14**) once the cloud architecture is defined. **No pricing numbers are final yet.**
+This plan is priced from real infrastructure economics — GPU/CPU compute, camera count/resolution/FPS, bandwidth, database, storage, monitoring, payment fees, operating overhead, and profit margin — calculated in a dedicated phase (**Phase 14**) once the cloud architecture is defined. **Phase 14 calculated a cost-derived price of approximately $150–155/camera/month** (CPU-only compute matching the actual built architecture, 70% gross margin, 24/7 tracking — see [PRICING-MODEL.md](PRICING-MODEL.md) for the full breakdown). This is not yet a locked, marketing-ready price, is not wired into the app, and does not cover the Own Hardware plan (a separate, market-positioning decision).
 
 ## Core product principles
 

@@ -104,7 +104,9 @@ class Subscription(Base):
     `trial_ends_at` is still in the future (app/auth.py's `is_subscription_active`).
     `plan_type` ("own_hardware" / "vero_cloud") and `max_cameras` exist as the
     architecture for Phase 12-14, but nothing sets them yet — every organization's
-    `max_cameras` is None (unlimited) until Phase 14 decides real numbers."""
+    `max_cameras` is None (unlimited). Phase 14 calculated a real Vero Cloud price
+    (docs/PRICING-MODEL.md) but deliberately didn't wire a number in here — that's
+    Phase 15's job, once PayPal actually exists to charge and enforce it."""
 
     __tablename__ = "subscriptions"
 
@@ -117,7 +119,9 @@ class Subscription(Base):
     trial_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # The entitlement mechanism (Phase 11's "licensing architecture"): None means
-    # unlimited. Enforced by routers/cameras.py's create_camera; never set in this phase.
+    # unlimited. Enforced by routers/cameras.py's create_camera; still never set on a
+    # real organization — Phase 14 priced Vero Cloud (docs/PRICING-MODEL.md) but left
+    # wiring a real number here to Phase 15, once there's real billing to enforce it.
     max_cameras: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Same shape, for devices (Phase 12): enforced by routers/devices.py's create_device;
     # never set on any real organization either.

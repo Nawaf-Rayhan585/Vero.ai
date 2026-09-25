@@ -352,13 +352,25 @@ export interface Subscription {
   /** True for "active", or "trialing" with trial_ends_at still in the future — computed
    * server-side so this never has to be re-derived here. */
   is_active: boolean;
+  /** Phase 15: set once a real PayPal subscription exists (Own Hardware only — Vero
+   * Cloud billing doesn't exist yet). null means only the manual override below has ever
+   * touched this subscription's status. */
+  paypal_subscription_id: string | null;
+  paypal_plan_id: string | null;
+  canceled_at: string | null;
 }
 
-/** Owner-only manual override — a stand-in for real billing until Phase 15 ships PayPal. */
+/** Owner-only manual override — an admin/support fallback that coexists with real
+ * PayPal billing (Phase 15), not replaced by it. */
 export interface SubscriptionUpdateRequest {
   status?: SubscriptionStatus;
   plan_type?: PlanType | null;
   trial_ends_at?: string;
+}
+
+/** Response from POST /subscription/paypal/checkout. */
+export interface PayPalCheckoutResponse {
+  approve_url: string;
 }
 
 // -- Device entitlement (Phase 12) --------------------------------------------------------

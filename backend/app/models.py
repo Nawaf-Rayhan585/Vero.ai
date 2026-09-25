@@ -104,9 +104,13 @@ class Subscription(Base):
     `trial_ends_at` is still in the future (app/auth.py's `is_subscription_active`).
     `plan_type` ("own_hardware" / "vero_cloud") and `max_cameras` exist as the
     architecture for Phase 12-14, but nothing sets them yet — every organization's
-    `max_cameras` is None (unlimited). Phase 14 calculated a real Vero Cloud price
-    (docs/PRICING-MODEL.md) but deliberately didn't wire a number in here — that's
-    Phase 15's job, once PayPal actually exists to charge and enforce it."""
+    `max_cameras` is still None (unlimited). Phase 14 calculated a real Vero Cloud price
+    (docs/PRICING-MODEL.md) but deliberately didn't wire a number in here — entitlement
+    *limits* remain undecided for both plans. Phase 15 wires real PayPal billing *status*
+    for Own Hardware only (Vero Cloud billing is a separate, deferred phase) — see
+    `paypal_subscription_id` below and routers/subscription.py's `/subscription/paypal/*`
+    endpoints; the Owner-only manual override from Phase 11 still exists alongside it as
+    an admin/support fallback, not replaced by it."""
 
     __tablename__ = "subscriptions"
 
@@ -126,12 +130,20 @@ class Subscription(Base):
     # Same shape, for devices (Phase 12): enforced by routers/devices.py's create_device;
     # never set on any real organization either.
     max_devices: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # Set when the Owner-only manual override (routers/subscription.py) activates the
-    # subscription — a stand-in for real billing until Phase 15 ships PayPal.
+    # Set either by the Owner-only manual override (routers/subscription.py) or by a real
+    # PayPal activation (Phase 15) — both set activated_at/activated_by_user_id the same
+    # way; activated_by_user_id stays None for a PayPal-driven activation (no admin acted).
     activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Phase 15: real PayPal billing for the Own Hardware plan (app/paypal_client.py,
+    # routers/subscription.py's /subscription/paypal/* endpoints). None means this
+    # subscription has never had a real PayPal subscription behind it — only the manual
+    # override (Phase 11) has ever touched it. Sandbox-only until a later phase goes live.
+    paypal_subscription_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
+    paypal_plan_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    canceled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

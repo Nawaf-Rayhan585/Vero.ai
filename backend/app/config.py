@@ -30,6 +30,22 @@ class Settings(BaseSettings):
     # than silently running locally.
     cloud_engine_base_url: Optional[str] = None
     cloud_engine_internal_secret: Optional[str] = None
+    # Phase 15: real PayPal billing for the Own Hardware plan (app/paypal_client.py,
+    # routers/subscription.py's /subscription/paypal/* endpoints). All optional — most
+    # dev/test setups never touch billing, so they shouldn't need these to run the app or
+    # the suite. Sandbox-only for now: paypal_api_base defaults to PayPal's sandbox host,
+    # never production, until a later phase explicitly goes live.
+    paypal_client_id: Optional[str] = None
+    paypal_client_secret: Optional[str] = None
+    paypal_webhook_id: Optional[str] = None
+    # Set by backend/scripts/setup_paypal_plan.py's one-time output.
+    paypal_own_hardware_plan_id: Optional[str] = None
+    paypal_api_base: str = "https://api-m.sandbox.paypal.com"
+    # Backend's own public-facing base URL, for PayPal's return/cancel redirects
+    # (/subscription/paypal/return, /cancel-return) and its webhook URL. Not reachable
+    # from PayPal's real servers in this dev environment (loopback-only) — see
+    # docs/ROADMAP.md's Phase 15 entry for what that does and doesn't block.
+    paypal_return_base_url: Optional[str] = None
 
     @field_validator("auth_secret_key")
     @classmethod

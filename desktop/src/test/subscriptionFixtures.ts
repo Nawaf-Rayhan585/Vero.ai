@@ -17,6 +17,9 @@ export function makeSubscription(overrides: Partial<Subscription> = {}): Subscri
     max_devices: null,
     activated_at: "2026-01-01T00:00:00Z",
     is_active: true,
+    paypal_subscription_id: null,
+    paypal_plan_id: null,
+    canceled_at: null,
     ...overrides,
   };
 }

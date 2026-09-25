@@ -24,3 +24,27 @@ export function useUpdateSubscription() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subscription"] }),
   });
 }
+
+export function useStartPayPalCheckout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => subscriptionApi.startPayPalCheckout(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subscription"] }),
+  });
+}
+
+export function useSyncPayPalSubscription() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => subscriptionApi.syncPayPalSubscription(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subscription"] }),
+  });
+}
+
+export function useCancelPayPalSubscription() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => subscriptionApi.cancelPayPalSubscription(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subscription"] }),
+  });
+}

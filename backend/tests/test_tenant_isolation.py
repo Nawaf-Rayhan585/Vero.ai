@@ -46,8 +46,20 @@ ROUTERS = [
 
 # Genuinely public: no account is needed to reach them at all. /auth/refresh belongs here
 # by design, not by oversight — refreshing is exactly what you do when you no longer have
-# a valid access token; it authenticates via the refresh token in its body instead.
-PUBLIC_ROUTES = {("POST", "/auth/register"), ("POST", "/auth/login"), ("POST", "/auth/refresh")}
+# a valid access token; it authenticates via the refresh token in its body instead. The
+# three /subscription/paypal/* routes are public for a different reason (Phase 15):
+# PayPal's own servers reach them — a browser redirect or a server-to-server webhook —
+# neither of which can carry this app's JWT. Their actual public-ness (and that the
+# return/cancel-return pages make no database write, and the webhook still rejects an
+# unverifiable signature) is tested directly in tests/test_paypal_subscription.py.
+PUBLIC_ROUTES = {
+    ("POST", "/auth/register"),
+    ("POST", "/auth/login"),
+    ("POST", "/auth/refresh"),
+    ("GET", "/subscription/paypal/return"),
+    ("GET", "/subscription/paypal/cancel-return"),
+    ("POST", "/subscription/paypal/webhook"),
+}
 
 
 def _all_routes() -> list[tuple[str, str]]:

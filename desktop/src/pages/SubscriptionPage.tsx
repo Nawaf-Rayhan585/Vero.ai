@@ -1,6 +1,14 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { daysRemaining, useSubscription, useUpdateSubscription } from "../hooks/useSubscription";
+import {
+  daysRemaining,
+  useCancelPayPalSubscription,
+  useStartPayPalCheckout,
+  useSubscription,
+  useSyncPayPalSubscription,
+  useUpdateSubscription,
+} from "../hooks/useSubscription";
 import { useCreateDevice, useDeleteDevice, useDevices, useUpdateDevice } from "../hooks/useDevices";
 import { Button, Card, EmptyState, ErrorNotice, Spinner, StatusBadge } from "../components/ui";
 import type { Device, PlanType, Subscription, SubscriptionStatus } from "../api/types";
@@ -208,6 +216,73 @@ function DevicesSection({ canConfigure, canGrow }: { canConfigure: boolean; canG
   );
 }
 
+function BillingSection({ subscription, isOwner }: { subscription: Subscription; isOwner: boolean }) {
+  const startCheckout = useStartPayPalCheckout();
+  const syncSubscription = useSyncPayPalSubscription();
+  const cancelSubscription = useCancelPayPalSubscription();
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
+
+  if (!isOwner) return null;
+
+  if (subscription.plan_type !== "own_hardware") {
+    return (
+      <Card title="Billing">
+        <p className="account-muted">Choose the Own Hardware plan above to subscribe via PayPal.</p>
+      </Card>
+    );
+  }
+
+  const hasPayPalSubscription = subscription.paypal_subscription_id !== null;
+  const isPayPalActive = hasPayPalSubscription && subscription.status === "active";
+  const canStartFresh = !hasPayPalSubscription || subscription.status === "canceled";
+
+  async function handleCheckout() {
+    const result = await startCheckout.mutateAsync();
+    await openUrl(result.approve_url);
+    setAwaitingApproval(true);
+  }
+
+  return (
+    <Card title="Billing">
+      <p className="account-muted subscription-override-note">
+        Own Hardware billing via PayPal — sandbox only, no real charges.
+      </p>
+      <div className="row">
+        {canStartFresh && (
+          <Button variant="primary" onClick={handleCheckout} disabled={startCheckout.isPending}>
+            {startCheckout.isPending ? "Starting..." : "Subscribe via PayPal"}
+          </Button>
+        )}
+        {!canStartFresh && !isPayPalActive && (
+          <Button onClick={() => syncSubscription.mutate()} disabled={syncSubscription.isPending}>
+            {syncSubscription.isPending ? "Checking..." : "Check status"}
+          </Button>
+        )}
+        {isPayPalActive && (
+          <Button
+            onClick={() => {
+              if (window.confirm("Cancel your PayPal subscription? This takes effect immediately.")) {
+                cancelSubscription.mutate();
+              }
+            }}
+            disabled={cancelSubscription.isPending}
+          >
+            {cancelSubscription.isPending ? "Canceling..." : "Cancel subscription"}
+          </Button>
+        )}
+      </div>
+      {awaitingApproval && !isPayPalActive && (
+        <p className="account-muted">
+          Approve the subscription in your browser, then come back and click "Check status".
+        </p>
+      )}
+      {startCheckout.isError && <ErrorNotice message={startCheckout.error.message} />}
+      {syncSubscription.isError && <ErrorNotice message={syncSubscription.error.message} />}
+      {cancelSubscription.isError && <ErrorNotice message={cancelSubscription.error.message} />}
+    </Card>
+  );
+}
+
 function OwnerOverride({ subscription }: { subscription: Subscription }) {
   const updateSubscription = useUpdateSubscription();
   const [status, setStatus] = useState<SubscriptionStatus>(subscription.status);
@@ -235,8 +310,8 @@ function OwnerOverride({ subscription }: { subscription: Subscription }) {
   return (
     <Card title="Manual override (temporary)">
       <p className="account-muted subscription-override-note">
-        There is no billing system yet — PayPal arrives in a later phase. Until then, this
-        sets the subscription state directly.
+        An admin/support fallback that works alongside real PayPal billing above — sets
+        the subscription state directly, for cases PayPal itself doesn't cover.
       </p>
       <form className="account-form account-form--inline" onSubmit={handleSubmit}>
         <label htmlFor="subscription-status-override" className="subscription-override-label">
@@ -287,6 +362,7 @@ export function SubscriptionPage() {
       </Card>
 
       {subscription && <PlanSection subscription={subscription} canEdit={isOwner} />}
+      {subscription && <BillingSection subscription={subscription} isOwner={isOwner} />}
       <DevicesSection canConfigure={canConfigure} canGrow={canGrow} />
       {subscription && isOwner && <OwnerOverride subscription={subscription} />}
     </>

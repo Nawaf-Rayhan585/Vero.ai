@@ -6,13 +6,16 @@ import { makeAuthValue } from "../test/authFixtures";
 import { makeSubscription } from "../test/subscriptionFixtures";
 import { subscriptionApi } from "../api/subscription";
 import { devicesApi } from "../api/devices";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { SubscriptionPage } from "./SubscriptionPage";
 import type { Device } from "../api/types";
 
 vi.mock("../api/subscription");
 vi.mock("../api/devices");
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 const subscriptionMock = vi.mocked(subscriptionApi);
 const devicesMock = vi.mocked(devicesApi);
+const openUrlMock = vi.mocked(openUrl);
 
 function makeDevice(overrides: Partial<Device> = {}): Device {
   return {
@@ -182,6 +185,81 @@ describe("SubscriptionPage", () => {
       await user.click(await screen.findByRole("button", { name: "Remove" }));
 
       expect(devicesMock.remove).toHaveBeenCalledWith("device-1");
+    });
+  });
+
+  describe("Billing", () => {
+    it("hides Billing entirely for a non-Owner", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription({ plan_type: "own_hardware" }));
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue({ currentRole: "admin" }) });
+
+      await screen.findByText("Own Hardware");
+      expect(screen.queryByRole("heading", { name: "Billing" })).not.toBeInTheDocument();
+    });
+
+    it("prompts to choose Own Hardware first when no plan is picked yet", async () => {
+      subscriptionMock.get.mockResolvedValue(makeSubscription({ plan_type: null }));
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await screen.findByRole("heading", { name: "Billing" });
+      expect(screen.getByText(/Choose the Own Hardware plan above/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Subscribe via PayPal" })).not.toBeInTheDocument();
+    });
+
+    it("an Owner can start PayPal checkout, which opens the approve URL in the system browser", async () => {
+      subscriptionMock.get.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", paypal_subscription_id: null }),
+      );
+      subscriptionMock.startPayPalCheckout.mockResolvedValue({ approve_url: "https://www.sandbox.paypal.com/approve" });
+      const user = userEvent.setup();
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await user.click(await screen.findByRole("button", { name: "Subscribe via PayPal" }));
+
+      expect(subscriptionMock.startPayPalCheckout).toHaveBeenCalled();
+      expect(openUrlMock).toHaveBeenCalledWith("https://www.sandbox.paypal.com/approve");
+      expect(await screen.findByText(/Approve the subscription in your browser/)).toBeInTheDocument();
+    });
+
+    it("shows 'Check status' once a PayPal subscription exists but isn't active yet", async () => {
+      subscriptionMock.get.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", status: "trialing", paypal_subscription_id: "I-ABC" }),
+      );
+      subscriptionMock.syncPayPalSubscription.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", status: "active", paypal_subscription_id: "I-ABC" }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await user.click(await screen.findByRole("button", { name: "Check status" }));
+
+      expect(subscriptionMock.syncPayPalSubscription).toHaveBeenCalled();
+    });
+
+    it("an Owner can cancel an active PayPal subscription after confirming", async () => {
+      subscriptionMock.get.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", status: "active", paypal_subscription_id: "I-ABC" }),
+      );
+      subscriptionMock.cancelPayPalSubscription.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", status: "canceled", paypal_subscription_id: "I-ABC" }),
+      );
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const user = userEvent.setup();
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      await user.click(await screen.findByRole("button", { name: "Cancel subscription" }));
+
+      expect(subscriptionMock.cancelPayPalSubscription).toHaveBeenCalled();
+    });
+
+    it("a canceled PayPal subscription can be restarted with 'Subscribe via PayPal'", async () => {
+      subscriptionMock.get.mockResolvedValue(
+        makeSubscription({ plan_type: "own_hardware", status: "canceled", paypal_subscription_id: "I-ABC" }),
+      );
+      renderWithProviders(<SubscriptionPage />, { authValue: makeAuthValue() });
+
+      expect(await screen.findByRole("button", { name: "Subscribe via PayPal" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Cancel subscription" })).not.toBeInTheDocument();
     });
   });
 });

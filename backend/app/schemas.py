@@ -130,12 +130,14 @@ class CameraCreate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     name: str = Field(min_length=1, max_length=200)
-    rtsp_url: str = Field(min_length=1)
+    # Phase 17: capped - the DB column is Text (unbounded), so nothing stopped an
+    # arbitrarily large "URL" before this; 2048 is generous for any real RTSP URL.
+    rtsp_url: str = Field(min_length=1, max_length=2048)
     username: Optional[str] = Field(default=None, max_length=200)
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, max_length=200)
     # Omit to use the organization's default location.
     location_id: Optional[uuid.UUID] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
     enabled_modules: list[AIModuleName] = Field(default_factory=lambda: list(DEFAULT_MODULES))
 
     _dedupe_modules = field_validator("enabled_modules", mode="after")(_unique_module_ids)
@@ -145,13 +147,13 @@ class CameraUpdate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    rtsp_url: Optional[str] = Field(default=None, min_length=1)
+    rtsp_url: Optional[str] = Field(default=None, min_length=1, max_length=2048)
     username: Optional[str] = Field(default=None, max_length=200)
     # Omit entirely to leave the stored password unchanged; "" clears it.
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, max_length=200)
     # Omit to leave the camera's location unchanged; a camera always belongs to one.
     location_id: Optional[uuid.UUID] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
     # Omit to leave the selection unchanged; [] is allowed (tracking just won't start
     # until at least one module is enabled).
     enabled_modules: Optional[list[AIModuleName]] = None

@@ -6,6 +6,29 @@ from urllib.parse import quote
 import cv2
 import numpy as np
 
+# Phase 17: OpenCV/FFmpeg's own native backend can print the stream URL it's connecting
+# to directly to stderr/console in some builds/error paths - and build_stream_url() below
+# embeds the camera's username/password directly into that URL, exactly the kind of thing
+# that must never reach a log file (this module's own error messages never do - checked
+# directly - but OpenCV's internal logging is outside this module's control). Both backend
+# and cloud-engine import this module, so setting the (process-wide) log level here covers
+# both without duplicating the call in two separate entry points.
+#
+# 0 = cv2's own LogLevel.LOG_LEVEL_SILENT enum value - not exposed as a named Python
+# constant in this OpenCV build (checked: no cv2.LOG_LEVEL_*, no cv2.utils.logging module),
+# confirmed instead by reading getLogLevel()'s value back after calling this.
+#
+# IMPORTANT, found by direct testing: this call alone does NOT suppress the specific
+# FFmpeg-backend warning that can print a stream URL on a failed connection
+# ("_opencv_ffmpeg_interrupt_callback ... in cap_ffmpeg_impl.hpp") - that one only responds
+# to the OPENCV_LOG_LEVEL environment variable set before the *process* starts (verified:
+# setting it via os.environ/os.putenv from within this same process, even before `import
+# cv2`, does not work on Windows for this specific warning - only a real pre-launch env
+# var does). That's set on the packaged Windows Service in
+# packaging/register_services.ps1 and in start-dev.ps1 for local dev. This call still
+# narrows OpenCV's own general-purpose logging, which is genuine value on its own.
+cv2.setLogLevel(0)
+
 OPEN_TIMEOUT_MS = 5000
 READ_TIMEOUT_MS = 5000
 # Safety net above the cv2 timeouts, comfortably longer than OPEN_TIMEOUT_MS +

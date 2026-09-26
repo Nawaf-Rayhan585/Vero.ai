@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+from zoneinfo import available_timezones
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -27,6 +28,16 @@ def _validate_password(value: str) -> str:
     return value
 
 
+def _validate_timezone(value: str) -> str:
+    # Phase 17: previously unvalidated - a bogus value stored fine (String(64) easily
+    # holds e.g. "asdf") and only surfaced as a raw Postgres error later, at analytics
+    # query time (`timezone(tz, ts)` with an invalid IANA name). Catching it here instead
+    # gives a clean 422 at the point a location's timezone is actually set.
+    if value not in available_timezones():
+        raise ValueError(f"'{value}' is not a recognized IANA time zone name")
+    return value
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
@@ -38,11 +49,18 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    # Phase 17: capped (but not min-length-checked, unlike registration) - a real account's
+    # password is always 10-128 chars already, so nothing legitimate is rejected, but an
+    # attacker sending a huge string no longer forces a full-length Argon2 verify over it
+    # on every attempt.
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Phase 17: generate_refresh_token() (app/security.py) always produces a 43-character
+    # value - generous headroom, not a tight fit, since this only needs to reject grossly
+    # oversized input before it reaches hash_refresh_token.
+    refresh_token: str = Field(max_length=200)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -104,10 +122,17 @@ class LocationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     timezone: str = "UTC"
 
+    _validate_timezone = field_validator("timezone")(_validate_timezone)
+
 
 class LocationUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     timezone: Optional[str] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone_if_given(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_timezone(value) if value is not None else None
 
 
 class LocationRead(BaseModel):

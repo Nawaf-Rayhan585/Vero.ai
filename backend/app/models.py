@@ -20,6 +20,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # Phase 17: account lockout (app/auth.py's is_account_locked/register_failed_login,
+    # routers/auth.py's login()). Reset to 0/None on a successful login.
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

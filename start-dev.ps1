@@ -10,7 +10,11 @@ if ($LASTEXITCODE -ne 0) {
 Start-Process powershell -ArgumentList @(
     "-NoExit",
     "-Command",
-    "cd '$root\backend'; .\venv\Scripts\Activate.ps1; alembic upgrade head; python -m uvicorn main:app --reload --port 8000"
+    # OPENCV_LOG_LEVEL=SILENT (Phase 17): set before uvicorn starts, not inside Python -
+    # confirmed by direct testing that only a process-level env var (not app/camera_
+    # testing.py's own runtime cv2.setLogLevel call) suppresses an OpenCV/FFmpeg-internal
+    # warning that can otherwise print a camera's stream URL, credentials included.
+    "cd '$root\backend'; .\venv\Scripts\Activate.ps1; `$env:OPENCV_LOG_LEVEL = 'SILENT'; alembic upgrade head; python -m uvicorn main:app --reload --port 8000"
 )
 
 Set-Location "$root\desktop"

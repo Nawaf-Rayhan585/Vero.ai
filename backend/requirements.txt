@@ -38,3 +38,9 @@ dnspython==2.8.0
 # Phase 13: backend now makes real outbound calls to cloud-engine (app/cloud_routing.py),
 # not just test-client usage — promoted from requirements-dev.txt to a direct dependency.
 httpx==0.28.1
+# Phase 17: app/auth_schemas.py validates a Location's timezone against zoneinfo's real
+# IANA database at request time (catching a bogus value with a clean 422 instead of a
+# confusing Postgres error later, at analytics-query time). zoneinfo itself is stdlib, but
+# Windows has no OS-level IANA tz data — this was already an effective (transitive, via
+# some other package) dependency; pinning it explicitly now that app code relies on it.
+tzdata==2026.4

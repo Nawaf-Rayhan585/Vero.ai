@@ -114,6 +114,31 @@ def require_role(*roles: str):
 
 require_configurator = require_role(*CONFIGURING_ROLES)
 
+# Phase 17: account lockout after repeated failed logins (routers/auth.py's login()).
+# Deliberately separate from app/rate_limit.py's IP-based limiter — this survives an
+# attacker spreading attempts across many IPs, since it's keyed by the account itself.
+LOCKOUT_THRESHOLD = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
+
+
+def is_account_locked(user: User) -> bool:
+    return user.locked_until is not None and user.locked_until > datetime.now(timezone.utc)
+
+
+def register_failed_login(db: Session, user: User) -> None:
+    """Only called for a *real* user whose password was wrong (routers/auth.py already
+    does a dummy verify for a nonexistent email and never reaches here for one) - so a
+    nonexistent email can never accumulate attempts or "lock" in a way that would let an
+    attacker distinguish it from a real account by trying a 6th time."""
+    user.failed_login_attempts += 1
+    if user.failed_login_attempts >= LOCKOUT_THRESHOLD:
+        user.locked_until = datetime.now(timezone.utc) + LOCKOUT_DURATION
+
+
+def register_successful_login(user: User) -> None:
+    user.failed_login_attempts = 0
+    user.locked_until = None
+
 
 def is_subscription_active(status: str, trial_ends_at: datetime) -> bool:
     """True if the organization can currently create or grow usage: an active

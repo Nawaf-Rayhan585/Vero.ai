@@ -4,7 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import OWNER, adopt_orphans, get_current_user, new_trial_subscription
+from app.auth import (
+    OWNER,
+    adopt_orphans,
+    get_current_user,
+    is_account_locked,
+    new_trial_subscription,
+    register_failed_login,
+    register_successful_login,
+)
 from app.auth_schemas import (
     ChangePasswordRequest,
     LoginRequest,
@@ -19,6 +27,7 @@ from app.auth_schemas import (
 from app.config import get_settings
 from app.database import get_db
 from app.models import Location, Membership, Organization, RefreshToken, User
+from app.rate_limit import rate_limit
 from app.security import (
     create_access_token,
     generate_refresh_token,
@@ -68,7 +77,7 @@ def _issue_tokens(db: Session, user: User) -> TokenPairRead:
     )
 
 
-@router.post("/register", response_model=TokenPairRead)
+@router.post("/register", response_model=TokenPairRead, dependencies=[Depends(rate_limit("register"))])
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     email = _normalize_email(request.email)
     if db.scalar(select(User).where(User.email == email)) is not None:
@@ -96,23 +105,35 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     return _issue_tokens(db, user)
 
 
-@router.post("/login", response_model=TokenPairRead)
+@router.post("/login", response_model=TokenPairRead, dependencies=[Depends(rate_limit("login"))])
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     email = _normalize_email(request.email)
     user = db.scalar(select(User).where(User.email == email))
 
     # verify_password always does a real Argon2 verify, even when `user` is None, so a
     # wrong password and an unregistered email take the same time and get the same error.
-    if not verify_password(request.password, user.password_hash if user else None) or not (user and user.is_active):
+    # Phase 17: a locked account gets the exact same treatment and the exact same generic
+    # error - an attacker can never tell "wrong password", "no such account", and "locked"
+    # apart from the response alone. Only a genuinely *wrong password* against a real,
+    # unlocked account counts toward the lockout threshold - a correct password against an
+    # already-locked (or, in the future, deactivated) account isn't itself a guessing
+    # attempt, and shouldn't extend anything or move the counter.
+    password_ok = verify_password(request.password, user.password_hash if user else None)
+    locked = is_account_locked(user) if user else False
+    if user is not None and not locked and not password_ok:
+        register_failed_login(db, user)
+        db.commit()
+    if not password_ok or locked or not (user and user.is_active):
         raise HTTPException(status_code=401, detail=INCORRECT_CREDENTIALS)
 
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(request.password)
+    register_successful_login(user)
 
     return _issue_tokens(db, user)
 
 
-@router.post("/refresh", response_model=TokenPairRead)
+@router.post("/refresh", response_model=TokenPairRead, dependencies=[Depends(rate_limit("refresh"))])
 def refresh(request: RefreshRequest, db: Session = Depends(get_db)):
     token_hash = hash_refresh_token(request.refresh_token)
     stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))

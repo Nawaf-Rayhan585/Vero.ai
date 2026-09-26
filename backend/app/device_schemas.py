@@ -10,12 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DeviceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    notes: Optional[str] = None
+    # Phase 17: capped - the DB column is Text (unbounded), matching the same cap already
+    # applied to Camera's own free-text notes field.
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class DeviceUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class DeviceRead(BaseModel):

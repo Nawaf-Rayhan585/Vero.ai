@@ -154,6 +154,93 @@ class TestLogin:
         assert anonymous_client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]}).status_code == 200
 
 
+class TestAccountLockout:
+    """Phase 17: app.auth.LOCKOUT_THRESHOLD (5) failed attempts locks the account for
+    app.auth.LOCKOUT_DURATION (15 minutes) — but the response must never let an attacker
+    distinguish "wrong password", "no such account", and "locked" from each other."""
+
+    def _fail_login(self, client, email, times):
+        for _ in range(times):
+            client.post("/auth/login", json={"email": email, "password": "wrong-password"})
+
+    def test_a_5th_failed_attempt_locks_the_account_even_with_the_right_password(self, anonymous_client):
+        anonymous_client.post("/auth/register", json=VALID_REGISTRATION)
+        self._fail_login(anonymous_client, VALID_REGISTRATION["email"], 5)
+
+        response = anonymous_client.post(
+            "/auth/login", json={"email": VALID_REGISTRATION["email"], "password": VALID_REGISTRATION["password"]}
+        )
+
+        assert response.status_code == 401
+
+    def test_the_locked_response_is_identical_to_a_plain_wrong_password(self, anonymous_client):
+        anonymous_client.post("/auth/register", json=VALID_REGISTRATION)
+        self._fail_login(anonymous_client, VALID_REGISTRATION["email"], 5)
+
+        locked = anonymous_client.post(
+            "/auth/login", json={"email": VALID_REGISTRATION["email"], "password": VALID_REGISTRATION["password"]}
+        )
+        wrong_password = anonymous_client.post(
+            "/auth/login", json={"email": "someone-else@example.com", "password": "wrong-password"}
+        )
+
+        assert locked.status_code == wrong_password.status_code == 401
+        assert locked.json() == wrong_password.json()
+
+    def test_fewer_than_5_failed_attempts_does_not_lock_the_account(self, anonymous_client):
+        anonymous_client.post("/auth/register", json=VALID_REGISTRATION)
+        self._fail_login(anonymous_client, VALID_REGISTRATION["email"], 4)
+
+        response = anonymous_client.post(
+            "/auth/login", json={"email": VALID_REGISTRATION["email"], "password": VALID_REGISTRATION["password"]}
+        )
+
+        assert response.status_code == 200
+
+    def test_a_successful_login_resets_the_failed_attempt_counter(self, anonymous_client, db_session):
+        from app.models import User
+
+        anonymous_client.post("/auth/register", json=VALID_REGISTRATION)
+        self._fail_login(anonymous_client, VALID_REGISTRATION["email"], 3)
+        ok = anonymous_client.post(
+            "/auth/login", json={"email": VALID_REGISTRATION["email"], "password": VALID_REGISTRATION["password"]}
+        )
+        assert ok.status_code == 200
+
+        user = db_session.query(User).filter_by(email=VALID_REGISTRATION["email"]).one()
+        assert user.failed_login_attempts == 0
+        assert user.locked_until is None
+
+    def test_the_lock_expires_after_its_own_window(self, anonymous_client, db_session):
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import User
+
+        anonymous_client.post("/auth/register", json=VALID_REGISTRATION)
+        self._fail_login(anonymous_client, VALID_REGISTRATION["email"], 5)
+
+        user = db_session.query(User).filter_by(email=VALID_REGISTRATION["email"]).one()
+        assert user.locked_until is not None
+        user.locked_until = datetime.now(timezone.utc) - timedelta(seconds=1)  # simulate the window having passed
+        db_session.commit()
+
+        response = anonymous_client.post(
+            "/auth/login", json={"email": VALID_REGISTRATION["email"], "password": VALID_REGISTRATION["password"]}
+        )
+
+        assert response.status_code == 200
+
+    def test_a_nonexistent_email_never_locks_and_stays_indistinguishable(self, anonymous_client):
+        # No account exists to lock - but the response must never reveal that, so it
+        # should still look identical to a real, wrong-password 401 after several attempts
+        # (kept under app.rate_limit's own per-IP cap on /auth/login, tested separately).
+        self._fail_login(anonymous_client, "nobody@example.com", 7)
+
+        response = anonymous_client.post("/auth/login", json={"email": "nobody@example.com", "password": "whatever12"})
+
+        assert response.status_code == 401
+
+
 class TestRefresh:
     @pytest.fixture
     def registered(self, anonymous_client):

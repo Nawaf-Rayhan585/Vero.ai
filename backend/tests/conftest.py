@@ -71,6 +71,20 @@ def clean_tables(test_database):
         )
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Phase 17: app/rate_limit.py's counters are a plain module-level dict, not
+    request-scoped or reset by clean_tables — without this, a test that registers/logs in
+    several times in quick succession (the tenant-isolation matrix does exactly this)
+    would eventually start hitting the real 429 the same way a genuine abuser would,
+    since Starlette's TestClient always presents the same synthetic client IP."""
+    from app.rate_limit import _reset_for_tests
+
+    _reset_for_tests()
+    yield
+    _reset_for_tests()
+
+
 TEST_PASSWORD = "test-password-123"
 
 

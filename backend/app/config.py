@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -9,9 +10,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 MIN_AUTH_SECRET_KEY_LENGTH = 32
 
+# Phase 16: a packaged install has no repo-root .env (there is no repo on a customer's
+# machine) — its Windows Service sets VERO_CONFIG_PATH to point at the real config file
+# instead (generated on first install, C:\ProgramData\Vero.ai\config.env — see
+# packaging/generate_first_run_config.ps1). Unset in every dev/test setup, so this is a
+# pure addition: behavior is byte-for-byte the same as before whenever it's absent.
+_config_path_override = os.environ.get("VERO_CONFIG_PATH")
+ENV_FILE = Path(_config_path_override) if _config_path_override else REPO_ROOT / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
     database_url: str
     camera_credentials_key: str

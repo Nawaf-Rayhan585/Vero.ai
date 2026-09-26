@@ -32,6 +32,23 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../../packaging/dist/pyruntime/": "pyruntime/",
+      "../../packaging/postgres/": "postgres/",
+      "../../packaging/nssm/": "nssm/",
+      "../../packaging/*.ps1": "packaging/",
+      "../../backend/app/": "backend/app/",
+      "../../backend/alembic/": "backend/alembic/",
+      "../../backend/alembic.ini": "backend/alembic.ini",
+      "../../backend/main.py": "backend/main.py",
+      "../../backend/service_entrypoint.py": "backend/service_entrypoint.py"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsi",
+        "installMode": "perMachine"
+      }
+    }
   }
 }

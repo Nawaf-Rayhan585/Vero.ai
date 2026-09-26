@@ -45,7 +45,11 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420"],
+    # localhost:1420 is Vite's dev server; tauri.localhost is where a packaged Tauri
+    # window's frontend actually loads from (Phase 16). Both are the same single
+    # installed app talking to its own loopback-only backend, never a third party, so
+    # listing both permanently is safe rather than branching on a build flag.
+    allow_origins=["http://localhost:1420", "http://tauri.localhost"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -137,26 +137,37 @@ npm test
 
 Vitest + Testing Library; no backend or PostgreSQL required, since the API layer is mocked in these tests.
 
-## Building a Windows installer
+## Building a Windows installer (Phase 16)
+
+The installer now bundles and auto-installs everything the Own Hardware plan needs — a real PostgreSQL, a real Python backend, both registered as persistent Windows Services — not just the desktop app. One-time setup, before the first build:
+
+```powershell
+cd "F:\AI Dev\Vero.ai SaaS Platform\vero.ai"
+powershell -File packaging/fetch_dependencies.ps1        # downloads EDB PostgreSQL 16 + NSSM (~330 MB, gitignored)
+powershell -File packaging/build_portable_python.ps1     # builds a relocatable Python + backend/requirements.txt (~1.4 GB, gitignored)
+powershell -File packaging/verify_portable_python.ps1 -VenvDir packaging/dist/pyruntime
+```
+
+Then, as before:
 
 ```powershell
 cd "F:\AI Dev\Vero.ai SaaS Platform\vero.ai\desktop"
 npm run tauri build
 ```
 
-This produces an MSI and an NSIS installer under `desktop/src-tauri/target/release/bundle/`. The bundled app expects the backend to be running separately at `http://127.0.0.1:8000` — it does not launch or embed the Python backend.
+This produces an MSI and an NSIS installer under `desktop/src-tauri/target/release/bundle/`, now around 1.5-2 GB (everything above is bundled in). **Installing requires administrator rights** (`installMode: "perMachine"` in `tauri.conf.json`) — it registers `VeroAiPostgres`/`VeroAiBackend` as real Windows Services (Automatic startup, survive reboot and the app being closed) via the bundled NSSM, generates a real per-install config (`C:\ProgramData\Vero.ai\config.env`) on first install, and initializes the local database. Uninstalling removes the services and program files but deliberately leaves `C:\ProgramData\Vero.ai` (the database and config) behind — see `docs/ROADMAP.md`'s Phase 16 entry for the full design and what's been verified vs. not.
 
 ## Notes / current limitations (V1)
 
 - Job history is stored in PostgreSQL and survives backend restarts. Jobs still pending/running when the backend stops are marked `failed` ("Interrupted by backend restart") on the next start; this assumes a single backend process.
 - Video job results store every frame's detections in one JSONB value, so long videos produce very large rows.
 - The desktop app defaults to `http://127.0.0.1:8000`, but this is now changeable per-machine in Settings if something else on your machine already uses that port (for example another Docker project) — see Backend connection in Settings.
-- A packaged (built) desktop app cannot reach the backend yet: production Tauri pages load from `http://tauri.localhost`, but the backend's CORS only allows `http://localhost:1420` (the dev server origin). This only affects `npm run tauri build` output, not `npm run tauri dev`.
+- Fixed in Phase 16: a packaged (built) desktop app can now reach the backend — `http://tauri.localhost` (where production Tauri pages actually load from) is allowed by CORS alongside the dev-server origin.
 - Auth is JWT access tokens (~15 min default) plus rotating refresh tokens; there is no email service, so no email verification, no password reset (only an in-app change-password while signed in), and adding someone to an organization requires they already have an account. No rate limiting/lockout on login yet. Being added to an organization isn't pushed to an already-open session — sign out/in (or wait for the next silent token refresh) to see it.
 - Every organization gets a 3-day trial; once it ends, growing usage (add/edit a camera/line/zone/location/member/device, start tracking) is blocked until it's reactivated. Own Hardware can now be reactivated via a real (sandbox) PayPal subscription (Phase 15, the Subscription page's Billing section) or, still, the Owner-only manual override — plan type (Own Hardware / Vero Cloud) is chosen there too. Vero Cloud has no billing yet (its real price is still a pending business decision, `docs/PRICING-MODEL.md`), but switching to it does change behavior: that organization's camera tracking/testing/snapshot requests run on a separate `cloud-engine` service instead of locally (see above). There are still no real entitlement limits on either plan (camera-count and device-count limiting exist as tested code but nothing sets a number).
 - Device entitlement (Subscription page) is a soft record, not real hardware-binding: an Owner/Admin types a device name, and nothing checks that traffic actually comes from a registered machine, or restricts device registration to any particular plan.
 - PayPal billing (Phase 15) is sandbox-only — no real business account, no real money, never goes live without an explicit later decision. It's Own Hardware only; canceling and re-subscribing is the only way to change anything about an existing subscription (no in-place upgrade/downgrade). Real inbound webhook delivery is untested: PayPal's real servers can't reach this dev environment's loopback-only backend, so the Subscription page's "Check status" button (an outbound call to PayPal) is what actually keeps a subscription's status current here, not the webhook.
-- The desktop build does not package or auto-start the backend/ai-engine/PostgreSQL — those must be running alongside the app.
+- Phase 16: the installer now bundles and auto-starts the backend + PostgreSQL as persistent Windows Services (survive the app closing and reboot) — see "Building a Windows installer" above. **Not yet proven on a real machine**: the actual installer build and real service registration were deliberately not run on this shared dev machine (needs admin elevation, would leave real system state) — everything up to that point (real EDB PostgreSQL bootstrap, real migrations, real Uvicorn) was tested directly instead. `npm run tauri dev` is unaffected either way.
 - Camera connection status is only refreshed on demand (Test connection), not monitored continuously in the background — the badge can go stale if a camera drops between tests.
 - A camera whose native OpenCV/FFmpeg connection attempt ignores its own timeout can still tie up one backend worker thread longer than the configured ~5s timeout (mitigated, not eliminated, by an outer hard timeout in `app/camera_testing.py`).
 - Camera credentials travel over plain HTTP between desktop and backend — fine for same-machine loopback (today's only deployment shape), but will need TLS for the Vero Cloud plan.

@@ -21,3 +21,10 @@ desktop/src-tauri/gen/
 
 # Tests
 .pytest_cache/
+
+# Phase 16 packaging: large, versioned, third-party build artifacts - fetched by
+# packaging/fetch_dependencies.ps1 and packaging/build_portable_python.ps1, not
+# committed to source control (same reason requirements.txt's packages aren't).
+packaging/postgres/
+packaging/nssm/
+packaging/dist/
